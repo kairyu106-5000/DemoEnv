@@ -1,0 +1,20 @@
+[default]
+  url = "http://localhost:8086"
+  token = "Ra5tqipZWIsmEvw9yOcArmHq7hBk7ILOCDc3f2SqD0bnwUTbJnU7KlXUnXNrx5j1LsqhE5m_T5yuHufA022MvQ=="
+  org = "SmartBan"
+  active = true
+# 
+# [eu-central]
+#   url = "https://eu-central-1-1.aws.cloud2.influxdata.com"
+#   token = "XXX"
+#   org = ""
+# 
+# [us-central]
+#   url = "https://us-central1-1.gcp.cloud2.influxdata.com"
+#   token = "XXX"
+#   org = ""
+# 
+# [us-west]
+#   url = "https://us-west-2-1.aws.cloud2.influxdata.com"
+#   token = "XXX"
+#   org = ""

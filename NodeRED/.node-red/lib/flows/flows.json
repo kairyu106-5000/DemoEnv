@@ -1,0 +1,4100 @@
+[
+    {
+        "id": "997a3042cd0e7cd4",
+        "type": "subflow",
+        "name": "PPG_flow",
+        "info": "",
+        "category": "",
+        "in": [
+            {
+                "x": 60,
+                "y": 100,
+                "wires": [
+                    {
+                        "id": "2cbb8f3dbfd9630c"
+                    }
+                ]
+            }
+        ],
+        "out": [
+            {
+                "x": 620,
+                "y": 100,
+                "wires": [
+                    {
+                        "id": "2cbb8f3dbfd9630c",
+                        "port": 0
+                    }
+                ]
+            }
+        ],
+        "env": [],
+        "meta": {},
+        "color": "#DDAA99"
+    },
+    {
+        "id": "2cbb8f3dbfd9630c",
+        "type": "function",
+        "z": "997a3042cd0e7cd4",
+        "name": "parse_PPG_data",
+        "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nlet hubDate = msg.hubDate\n\nconst BUFFER_SIZE = 3;\nconst samplingTime = 40; // ms\n\nif (tlen == 0) {\n    return null;\n}\n// ======= Nodeタイムスタンプ管理用 ======= \nconst contextName = {\n    // Hubのタイムスタンプを使用する\n    startDate: \"$parent.startDate_\" + msg.port,\n    startTime: \"$parent.startTime_\" + msg.port,\n}\n\nconst getCurrentDate = (timeStamp) => {\n    let startDate = flow.get(contextName.startDate)\n    let startTime = flow.get(contextName.startTime)\n    let diffTime = timeStamp - startTime\n    let currentDate = new Date(startDate + diffTime)\n    return currentDate\n}\n\n// ========================================================\n\nlet timeValue = parseInt(input[0] + input[1] + input[2] + input[3], 16)\n\n// contextデータを使用して時刻を算出する\nlet headDate = getCurrentDate(timeValue)\n\nlet ppgBuffer = input.slice(4)\nlet buffer = new Array()\n// lenのサイズに従ってBuffer配列を作成する\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    buffer[cnt] = new Array()\n    for (let i = 0; i < BUFFER_SIZE; i++) {\n        buffer[cnt].push(ppgBuffer[i + BUFFER_SIZE * cnt])\n    }\n}\n\nfor (let cnt = 0; cnt<tlen; cnt++) {\n    let ppgValue = parseInt(buffer[cnt][0] + buffer[cnt][1] + buffer[cnt][2],16)\n    // PPGの範囲は0~100%のため、負数の処理は不要の想定\n    // if (ppgValue & 0x800000) ppgValue |= ~0xffffff; //24bit\n    \n    let measurementTime = new Date(headDate.getTime() + (samplingTime * cnt))\n    msg = {\n        Ndata: msg.Ndata,\n        payload: {\n            ppg: ppgValue,\n            Ndata: msg.Ndata,\n            timestamp: measurementTime\n        },\n        timestamp: measurementTime,\n        samplingTime: samplingTime,\n    }\n    node.send(msg);\n}\n\nreturn null;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 230,
+        "y": 100,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "a893cba93cb6f041",
+        "type": "subflow",
+        "name": "IMU_flow",
+        "info": "",
+        "category": "",
+        "in": [
+            {
+                "x": 40,
+                "y": 100,
+                "wires": [
+                    {
+                        "id": "50eda4702f0c0418"
+                    }
+                ]
+            }
+        ],
+        "out": [
+            {
+                "x": 950,
+                "y": 100,
+                "wires": [
+                    {
+                        "id": "50eda4702f0c0418",
+                        "port": 0
+                    }
+                ]
+            },
+            {
+                "x": 940,
+                "y": 180,
+                "wires": [
+                    {
+                        "id": "4791068118619cb6",
+                        "port": 0
+                    },
+                    {
+                        "id": "702567882d3ced15",
+                        "port": 0
+                    },
+                    {
+                        "id": "1818bfbf453907b4",
+                        "port": 0
+                    }
+                ]
+            }
+        ],
+        "env": [],
+        "meta": {},
+        "color": "#DDAA99",
+        "outputLabels": [
+            "IMU(6axis)",
+            "PSD(acc)"
+        ]
+    },
+    {
+        "id": "50eda4702f0c0418",
+        "type": "function",
+        "z": "a893cba93cb6f041",
+        "name": "Imu_proc",
+        "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nlet hubDate = msg.hubDate\nconst samplingTime = 240\nconst BUFFER_SIZE = 16\n\nif (tlen == 0) {\n    return null;\n}\n\n// ======= Nodeタイムスタンプ管理用 ======= \nconst contextName = {\n    // Hubのタイムスタンプを使用\n    startDate: \"$parent.startDate_\" + msg.port,\n    startTime: \"$parent.startTime_\" + msg.port,\n}\n\nconst getCurrentDate = (timeStamp) => {\n    let startDate = flow.get(contextName.startDate)\n    let startTime = flow.get(contextName.startTime)\n    let diffTime = timeStamp - startTime\n    let currentDate = new Date(startDate + diffTime)\n    return currentDate\n}\n// =======================================\n\nlet buffer = []\n// lenのサイズに従ってBuffer配列を作成する\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    buffer[cnt] = new Array()\n    for (let i = 0; i < BUFFER_SIZE; i++) {\n        buffer[cnt].push(input[i + BUFFER_SIZE * cnt])\n    }\n}\n\nlet measurementTime\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    // 配列をgx~gz, ax~az, timestampに分ける\n    let gyro_x = parseInt(buffer[cnt][0] + buffer[cnt][1],16)\n    if (gyro_x & 0x8000) gyro_x |= ~0xffff;\n    let gyro_y = parseInt(buffer[cnt][2] + buffer[cnt][3],16)\n    if (gyro_y & 0x8000) gyro_y |= ~0xffff;\n    let gyro_z = parseInt(buffer[cnt][4] + buffer[cnt][5],16)\n    if (gyro_z & 0x8000) gyro_z |= ~0xffff;\n    let acc_x = parseInt(buffer[cnt][6] + buffer[cnt][7],16)\n    if (acc_x & 0x8000) acc_x |= ~0xffff;\n    let acc_y = parseInt(buffer[cnt][8] + buffer[cnt][9],16)\n    if (acc_y & 0x8000) acc_y |= ~0xffff;\n    let acc_z = parseInt(buffer[cnt][10] + buffer[cnt][11],16)\n    if (acc_z & 0x8000) acc_z |= ~0xffff;\n    \n    let timeValue = parseInt(buffer[cnt][12] + buffer[cnt][13] + buffer[cnt][14] + buffer[cnt][15], 16)\n\n    // contextデータを使用して時刻を算出する\n    let measurementTime = getCurrentDate(timeValue)\n\n    let imuMsg = {\n        Ndata: msg.Ndata,\n        payload:{\n            gyro_x: gyro_x,\n            gyro_y: gyro_y,\n            gyro_z: gyro_z,\n            acc_x: acc_x,\n            acc_y: acc_y,\n            acc_z: acc_z\n        },\n        timestamp: measurementTime,\n        samplingTime: samplingTime,\n    }\n    node.send([imuMsg]);\n}\n\nreturn null;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 140,
+        "y": 100,
+        "wires": [
+            [
+                "578d781da1f01bf0"
+            ]
+        ]
+    },
+    {
+        "id": "ecaefe82d238b19f",
+        "type": "function",
+        "z": "a893cba93cb6f041",
+        "name": "calc_PSD(acc)",
+        "func": "// ============= define complex function =============\nconst expi = (theta) =>{\n    return [Math.cos(theta), Math.sin(theta)]\n}\nconst iadd = ([ax, ay],[bx, by])=>{\n    return [ax + bx, ay + by]\n}\nconst isub = ([ax, ay], [bx, by]) =>{\n    return [ax - bx, ay - by]\n}\nconst imul = ([ax,ay],[bx,by]) =>{\n    return [ax*bx - ay*by, ax*by + ay*bx]\n}\nconst isum = (cs) =>{\n    return cs.reduce((s,c) => iadd(s,c), [0,0])\n}\n\n// ============= define window function =============\nconst window_function = (name, N) =>{\n    let window = []\n    switch(name){\n        case \"hanning\":\n            for(let i = 0; i < N; i++){\n                window.push((0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1))))\n            }\n            return window\n        case \"hamming\":\n            for (let i = 0; i < N; i++) {\n                window.push((0.54 - 0.46 * Math.cos(2 * Math.PI * i / (N - 1))))\n            }\n            return window\n        case \"blackman\":\n            for (let i = 0; i < N; i++) {\n                window.push((0.42 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)) + 0.08 * Math.cos(4 * Math.PI * i / (N - 1))))\n            }\n            return window\n        default:\n            for (let i = 0; i < N; i++) {\n                window.push(1)\n            }\n            return window\n    }\n}\n\nconst conv_window = (data,window) =>{\n    let ans = new Array()\n    data.map((v,i) => ans.push([v[0]*window[i], v[1]]))\n    return ans;\n    // switch(name){\n    //     case \"hanning\":\n    //         data.map((v,i) => ans.push([v[0] * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1))), v[1]]))\n    //         return ans;\n    //     case \"hamming\":\n    //         data.map((v, i) => ans.push([v[0] * (0.54 - 0.46 * Math.cos(2 * Math.PI * i / (N - 1))), v[1]]))\n    //         return ans;\n    //     case \"blackman\":\n    //         data.map((v, i) => ans.push([v[0] * (0.42 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)) + 0.08 * Math.cos(4 * Math.PI * i / (N - 1))), v[1]]))\n    //         return ans;\n    //     default:\n    //         return data\n    // }\n}\n\n\n// ============= define FFT function =============\n\n/* calc fft by recursive function*/\nconst fftrec = (c, T, N, s=0, w=1) =>{\n    if(N === 1) return [c[s]];\n    const Nh = N/2, Td = T*2, wd = w*2;\n    const rec = fftrec(c, Td, Nh, s, wd).concat(fftrec(c, Td, Nh, s+w, wd));\n    for(let i=0; i<Nh; i++){\n        const l = rec[i], re= imul(rec[i+Nh],expi(T*i));\n        [rec[i], rec[i+Nh]] = [iadd(l, re), isub(l, re)];\n    }\n    return rec\n}\n\nconst fft0 = (f) =>{\n    const N = f.length, T = -2 * Math.PI / N;\n    return fftrec(f,T,N)\n}\n\nconst ifft0 = (F) =>{\n    const N = F.length, T = 2 * Math.PI / N;\n    return fftrec(F, T, N).map(([r, i])=> [r/N, i/N])\n}\n\nconst calcPowerSpectrum = (f, resolution) =>{\n    // return f.map((r, index) => [(resolution * index).toPrecision(3),Math.sqrt(r[0]**2 + r[1]**2)])\n    let N = f.length\n    return f.map((r, index) => [(resolution * index).toPrecision(3), (Math.sqrt(r[0] ** 2 + r[1] ** 2)) / N*2])\n}\n\n// ================================================\n\n/**\n *  横軸分解能\n *  ΔHz = 1/(2^N * Δt) \n *  \n */\n\nlet input = msg.payload\nlet timestamp = msg.timestamp\nlet samplingTime = msg.samplingTime\n\nconst f_resolution = 1 / (input.length * samplingTime/1000)\n// const f_resolution = 1 / (input.length * 0.2)\n\nconst window_name = env.get(\"WINDOW_FUNCTION\");\nlet N = input.length\nconst window = window_function(window_name, N)\n\nlet accXArr=[], accYArr=[], accZArr=[];\ninput.map((r)=> {\n    accXArr.push([r[\"acc_x\"], 0]);\n    accYArr.push([r[\"acc_y\"], 0]);\n    accZArr.push([r[\"acc_z\"], 0]);\n});\n\nlet accXArr_windowed = conv_window(accXArr, window)\nlet accYArr_windowed = conv_window(accYArr, window)\nlet accZArr_windowed = conv_window(accZArr, window)\n\nconst F_accX = fft0(accXArr_windowed)\nconst F_accY = fft0(accYArr_windowed)\nconst F_accZ = fft0(accZArr_windowed)\n\nlet acc_x_PS = calcPowerSpectrum(F_accX, f_resolution)\nlet acc_y_PS = calcPowerSpectrum(F_accY, f_resolution)\nlet acc_z_PS = calcPowerSpectrum(F_accZ, f_resolution)\n\n// 窓補正\nconst acf = 1/(window.reduce((sum,element)=>sum+element,0)/N)\n\nlet acc_x_PS_obj = {}\nlet acc_y_PS_obj = {}\nlet acc_z_PS_obj = {}\n\n// 窓補正ありの場合\nacc_x_PS.map((r)=> acc_x_PS_obj[r[0]] = r[1]*acf)\nacc_y_PS.map((r) => acc_y_PS_obj[r[0]] = r[1]*acf)\nacc_z_PS.map((r) => acc_z_PS_obj[r[0]] = r[1]*acf)\n\n// 窓補正なしの場合\n// acc_x_PS.map((r) => acc_x_PS_obj[r[0]] = r[1])\n// acc_y_PS.map((r) => acc_y_PS_obj[r[0]] = r[1])\n// acc_z_PS.map((r) => acc_z_PS_obj[r[0]] = r[1])\n\n\nlet acc_x_PSD = {}\nlet acc_y_PSD = {}\nlet acc_z_PSD = {}\n\nconst offset = 1e-10\n\nacc_x_PS.map((r) => acc_x_PSD[r[0]] = 10 * Math.log10(r[1] / f_resolution + offset))\nacc_y_PS.map((r) => acc_y_PSD[r[0]] = 10 * Math.log10(r[1] / f_resolution + offset))\nacc_z_PS.map((r) => acc_z_PSD[r[0]] = 10 * Math.log10(r[1] / f_resolution + offset))\n\nmsg = {\n    payload:{\n        acc_x:{\n            PS: acc_x_PS_obj,\n            PSD: acc_x_PSD,\n            F: F_accX\n        },\n        acc_y:{\n            PS: acc_y_PS_obj,\n            PSD: acc_y_PSD,\n            F: F_accY\n        },\n        acc_z:{\n            PS: acc_z_PS_obj,\n            PSD: acc_z_PSD,\n            F: F_accZ\n        }\n    },\n    timestamp: timestamp,\n    Ndata: msg.Ndata\n}\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 560,
+        "y": 180,
+        "wires": [
+            [
+                "4791068118619cb6",
+                "702567882d3ced15",
+                "1818bfbf453907b4"
+            ]
+        ]
+    },
+    {
+        "id": "08f999992c315308",
+        "type": "batch",
+        "z": "a893cba93cb6f041",
+        "name": "N=16",
+        "mode": "count",
+        "count": "16",
+        "overlap": "8",
+        "interval": 10,
+        "allowEmptySequence": false,
+        "topics": [],
+        "x": 270,
+        "y": 180,
+        "wires": [
+            [
+                "c33c29617bdec98b"
+            ]
+        ]
+    },
+    {
+        "id": "c33c29617bdec98b",
+        "type": "join",
+        "z": "a893cba93cb6f041",
+        "name": "",
+        "mode": "auto",
+        "build": "object",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": false,
+        "timeout": "",
+        "count": "",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "num",
+        "reduceFixup": "",
+        "x": 390,
+        "y": 180,
+        "wires": [
+            [
+                "ecaefe82d238b19f"
+            ]
+        ]
+    },
+    {
+        "id": "4791068118619cb6",
+        "type": "change",
+        "z": "a893cba93cb6f041",
+        "name": "acc_x_PS",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.acc_x.PS",
+                "tot": "msg",
+                "dc": true
+            },
+            {
+                "t": "set",
+                "p": "tag",
+                "pt": "msg",
+                "to": "{\"dataType\":\"acc_x_PS\"}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 740,
+        "y": 180,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "702567882d3ced15",
+        "type": "change",
+        "z": "a893cba93cb6f041",
+        "name": "acc_y_PS",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.acc_y.PS",
+                "tot": "msg",
+                "dc": true
+            },
+            {
+                "t": "set",
+                "p": "tag",
+                "pt": "msg",
+                "to": "{\"dataType\":\"acc_y_PS\"}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 740,
+        "y": 220,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "1818bfbf453907b4",
+        "type": "change",
+        "z": "a893cba93cb6f041",
+        "name": "acc_z_PS",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.acc_z.PS",
+                "tot": "msg",
+                "dc": true
+            },
+            {
+                "t": "set",
+                "p": "tag",
+                "pt": "msg",
+                "to": "{\"dataType\":\"acc_z_PS\"}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 740,
+        "y": 260,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "578d781da1f01bf0",
+        "type": "debug",
+        "z": "a893cba93cb6f041",
+        "d": true,
+        "name": "debug 38",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 300,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "a99e786f7afaa3c5",
+        "type": "subflow",
+        "name": "FFT",
+        "info": "",
+        "category": "",
+        "in": [
+            {
+                "x": 40,
+                "y": 40,
+                "wires": [
+                    {
+                        "id": "13fc51bf126d45b3"
+                    }
+                ]
+            }
+        ],
+        "out": [
+            {
+                "x": 980,
+                "y": 120,
+                "wires": [
+                    {
+                        "id": "027b2023c26a2543",
+                        "port": 0
+                    }
+                ]
+            },
+            {
+                "x": 1030,
+                "y": 180,
+                "wires": [
+                    {
+                        "id": "027b2023c26a2543",
+                        "port": 1
+                    }
+                ]
+            },
+            {
+                "x": 1040,
+                "y": 240,
+                "wires": [
+                    {
+                        "id": "027b2023c26a2543",
+                        "port": 2
+                    }
+                ]
+            }
+        ],
+        "env": [
+            {
+                "name": "PROPERTY",
+                "type": "str",
+                "value": "",
+                "ui": {
+                    "icon": "font-awesome/fa-ellipsis-h",
+                    "label": {
+                        "ja": "プロパティ"
+                    },
+                    "type": "input",
+                    "opts": {
+                        "types": [
+                            "str"
+                        ]
+                    }
+                }
+            },
+            {
+                "name": "SAMPLING_RATE",
+                "type": "num",
+                "value": "",
+                "ui": {
+                    "icon": "font-awesome/fa-clock-o",
+                    "label": {
+                        "ja": "サンプリング時間(ms)"
+                    },
+                    "type": "input",
+                    "opts": {
+                        "types": [
+                            "num"
+                        ]
+                    }
+                }
+            },
+            {
+                "name": "WINDOW_TYPE",
+                "type": "str",
+                "value": "hanning",
+                "ui": {
+                    "label": {
+                        "ja": "窓関数"
+                    },
+                    "type": "select",
+                    "opts": {
+                        "opts": [
+                            {
+                                "l": {
+                                    "ja": "ハニング窓"
+                                },
+                                "v": "hanning"
+                            },
+                            {
+                                "l": {
+                                    "ja": "ハミング窓"
+                                },
+                                "v": "hamming"
+                            },
+                            {
+                                "l": {
+                                    "ja": "ブラックマン窓"
+                                },
+                                "v": "blackman"
+                            },
+                            {
+                                "l": {
+                                    "ja": "矩形窓"
+                                },
+                                "v": "rectangular"
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "name": "BATCH_TYPE",
+                "type": "str",
+                "value": "0",
+                "ui": {
+                    "label": {
+                        "ja": "バッチタイプ"
+                    },
+                    "type": "select",
+                    "opts": {
+                        "opts": [
+                            {
+                                "l": {
+                                    "ja": "不使用"
+                                },
+                                "v": "0"
+                            },
+                            {
+                                "l": {
+                                    "ja": "個数バッチ"
+                                },
+                                "v": "1"
+                            },
+                            {
+                                "l": {
+                                    "ja": "秒数バッチ"
+                                },
+                                "v": "2"
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "name": "MSG_NUM",
+                "type": "num",
+                "value": "",
+                "ui": {
+                    "label": {
+                        "ja": "メッセージ数"
+                    },
+                    "type": "input",
+                    "opts": {
+                        "types": [
+                            "num"
+                        ]
+                    }
+                }
+            },
+            {
+                "name": "OVERLAP",
+                "type": "num",
+                "value": "",
+                "ui": {
+                    "label": {
+                        "ja": "オーバーラップ"
+                    },
+                    "type": "input",
+                    "opts": {
+                        "types": [
+                            "num"
+                        ]
+                    }
+                }
+            },
+            {
+                "name": "BATCH_TIME",
+                "type": "num",
+                "value": "",
+                "ui": {
+                    "label": {
+                        "ja": "バッチ時間(s)"
+                    },
+                    "type": "input",
+                    "opts": {
+                        "types": [
+                            "num"
+                        ]
+                    }
+                }
+            }
+        ],
+        "meta": {
+            "module": "FFT",
+            "version": "0.0.1",
+            "license": "MIT"
+        },
+        "color": "#C0DEED",
+        "outputLabels": [
+            "F(t)",
+            "パワースペクトル",
+            "パワースペクトル密度"
+        ],
+        "icon": "node-red/function.svg"
+    },
+    {
+        "id": "027b2023c26a2543",
+        "type": "function",
+        "z": "a99e786f7afaa3c5",
+        "name": "FFT_filter",
+        "func": "// ================= define complex functions =================\nconst expi = (theta) => {\n    return [Math.cos(theta), Math.sin(theta)]\n}\nconst iadd = ([ax, ay], [bx, by]) => {\n    return [ax + bx, ay + by]\n}\nconst isub = ([ax, ay], [bx, by]) => {\n    return [ax - bx, ay - by]\n}\nconst imul = ([ax, ay], [bx, by]) => {\n    return [ax * bx - ay * by, ax * by + ay * bx]\n}\nconst isum = (cs) => {\n    return cs.reduce((s, c) => iadd(s, c), [0, 0])\n}\nconst conj = ([x, y]) => {\n    return [x, -y];\n}\nconst revBit = (k,n0) =>{\n    if (k === 1) return n0;\n    const s1 = ((n0 & 0xaaaaaaaa) >>> 1) | ((n0 & 0x55555555) << 1);\n    if (k === 2) return s1;\n    const s2 = ((s1 & 0xcccccccc) >>> 2) | ((s1 & 0x33333333) << 2);\n    if (k <= 4) return s2 >>> (4 - k);\n    const s3 = ((s2 & 0xf0f0f0f0) >>> 4) | ((s2 & 0x0f0f0f0f) << 4);\n    if (k <= 8) return s3 >>> (8 - k);\n    const s4 = ((s3 & 0xff00ff00) >>> 8) | ((s3 & 0x00ff00ff) << 8);\n    if (k <= 16) return s4 >>> (16 - k);\n    const s5 = ((s4 & 0xffff0000) >>> 16) | ((s4 & 0x0000ffff) << 16);\n    return s5 >>> (32 - k);\n}\n\n// =============== define FFT function ===============\n\n/* basic fft function */\nconst fft_base = (c, T, N) => {\n    const k = Math.log2(N);\n    const rec = c.map((_, i) => c[revBit(k, i)]);\n    for (let Nh = 1; Nh < N; Nh *= 2) {\n        T /= 2;\n        for (let s = 0; s < N; s += Nh * 2) {\n            for (let i = 0; i < Nh; i++) {\n                const l = rec[s + i], re = imul(rec[s + i + Nh], expi(T * i));\n                [rec[s + i], rec[s + i + Nh]] = [iadd(l, re), isub(l, re)];\n            }\n        }\n    }\n    return rec\n}\n\n/* use base fft method */\nconst fft = (f) => {\n    const N = f.length, T = -2 * Math.PI;\n    return fft_base(f, T, N);\n}\nconst ifft = (F) => {\n    const N = F.length, T = 2 * Math.PI;\n    return fft_base(F, T, N).map(([r, i]) => [r / N, i / N]);\n}\n\n/* FFT by Bluestein's algorithm */\nconst fft_bluestein = (c, T, N) => {\n    const Nd = N * 2;\n    const bc = c.map((_, n) => expi(T * n * n / Nd));\n    const b = bc.map(conj);\n    const a = c.map((cn, n) => imul(cn, bc[n]));\n\n    const N2 = 1 << (32 - Math.clz32(Nd - 1));\n    const a2 = a.concat(Array(N2 - N).fill([0, 0]));\n    const b2 = b.concat(Array(N2 - Nd + 1).fill([0, 0]), b.slice(1).reverse());\n    const A2 = fft(a2);\n    const B2 = fft(b2);\n    const AB2 = A2.map((A2n, n) => imul(A2n, B2[n]));\n    const ab2 = ifft(AB2);\n    return bc.map((bcn, n) => imul(bcn, ab2[n]));\n}\n\n// データ長が2のべき乗か判定する関数\nconst isPowerOf2 = (n) =>{ \n    if(n===0) return false;\n    return (n & (n - 1)) === 0;\n}\n\nconst fft1 = (f) => {\n    const N = f.length, T = -2 * Math.PI;\n    // データ長によって使用するFFT関数を切り替える\n    const fft = isPowerOf2(N) ? fft_base : fft_bluestein\n    return fft(f, T, N);\n}\nconst ifft1 = (F) => {\n    const N = F.length, T = 2 * Math.PI;\n    // データ長によって使用するFFT関数を切り替える\n    const fft = isPowerOf2(N) ? fft_base : fft_bluestein\n    return fft(F, T, N).map(([r, i]) => [r / N, i / N]);\n}\n\n// ================================================\n\nlet input = msg.payload.data\nlet acf = msg.payload.acf\nlet timestamp = msg.timestamp\n\nif(input.length == 0){\n    return null\n}\n\n// サンプリング時間の設定\n// メッセージにサンプリング時間が設定されていた場合はそちらを採用する\n// ない場合は環境変数から取得を行う\n\nlet samplingTime = msg.samplingTime\nif(!samplingTime){\n    let SAMPLING_RATE = env.get(\"SAMPLING_RATE\")\n    if (!SAMPLING_RATE) {\n        node.error(\"sampling rate is not set\", msg);\n        return null;\n    } else{\n        samplingTime = parseInt(SAMPLING_RATE, 10)\n    }\n}\nif(samplingTime == 0){\n    node.error(\"sampling rate cannot be set to 0!\",msg);\n    return null;\n}\n\nconst f_resolution = 1 / (input.length * samplingTime/1000)\n\nlet F = fft1(input)\n\nlet PS = F.map((r, index) => [(f_resolution * index).toPrecision(6), Math.sqrt(r[0] ** 2 + r[1] ** 2)])\n\nlet PS_obj = {}\nPS.map((r)=> PS_obj[r[0]] = r[1])\n\nlet PSD_obj = {}\nPS.map((r) => {\n    PSD_obj[r[0]] = acf*(r[1] / f_resolution)    \n})\n\nlet fMsg = {\n    payload: F,\n    timestamp: timestamp,\n    Ndata: msg.Ndata, \n    tag: {\n        WINDOW_TYPE: env.get(\"WINDOW_TYPE\")\n    }\n}\nlet psMsg = {\n    payload: PS_obj ,\n    timestamp: timestamp,\n    Ndata: msg.Ndata,\n    tag: {\n        WINDOW_TYPE: env.get(\"WINDOW_TYPE\")\n    }\n}\nlet psdMsg = {\n    payload: PSD_obj,\n    timestamp: timestamp,\n    Ndata: msg.Ndata,\n    tag: {\n        WINDOW_TYPE: env.get(\"WINDOW_TYPE\")\n    }\n}\n\nnode.send([fMsg, psMsg, psdMsg]);\n\nreturn null;",
+        "outputs": 3,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 800,
+        "y": 180,
+        "wires": [
+            [],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "8ec0eabe0d38b1d7",
+        "type": "batch",
+        "z": "a99e786f7afaa3c5",
+        "name": "個数バッチ",
+        "mode": "count",
+        "count": "${MSG_NUM}",
+        "overlap": "${OVERLAP}",
+        "interval": 10,
+        "allowEmptySequence": false,
+        "topics": [],
+        "x": 150,
+        "y": 220,
+        "wires": [
+            [
+                "2d76aca34735a866"
+            ]
+        ]
+    },
+    {
+        "id": "2d76aca34735a866",
+        "type": "join",
+        "z": "a99e786f7afaa3c5",
+        "name": "",
+        "mode": "auto",
+        "build": "object",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": "false",
+        "timeout": "",
+        "count": "",
+        "reduceRight": false,
+        "x": 310,
+        "y": 240,
+        "wires": [
+            [
+                "6b44c0c1c766c064"
+            ]
+        ]
+    },
+    {
+        "id": "ba94fe073d8a95aa",
+        "type": "function",
+        "z": "a99e786f7afaa3c5",
+        "name": "window",
+        "func": "// ================ define window function ================\nconst window_function = (name, N) => {\n    let window = []\n    let acf = 0\n    switch (name) {\n        case \"hanning\":\n            for (let i = 0; i < N; i++) {\n                let tmp = (0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)))\n                window.push(tmp)\n                acf += tmp\n            }\n            break;\n        case \"hamming\":\n            for (let i = 0; i < N; i++) {\n                let tmp = (0.54 - 0.46 * Math.cos(2 * Math.PI * i / (N - 1)))\n                window.push(tmp)\n                acf += tmp\n            }\n            break;\n        case \"blackman\":\n            for (let i = 0; i < N; i++) {\n                let tmp = (0.42 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)) + 0.08 * Math.cos(4 * Math.PI * i / (N - 1)))\n                window.push(tmp)\n                acf += tmp\n            }\n            break;\n        case \"rectangular\":\n            for (let i = 0; i < N; i++) {\n                window.push(1)\n                acf += 1\n            }\n            break;\n        default:\n            for (let i = 0; i < N; i++) {\n                window.push(1)\n                acf += 1\n            }\n            break;\n    }\n    acf = 1 / (acf / N)\n    return { window: window, acf: acf }\n}\n\n// =====================================================\n\nlet input = msg.payload\n\n// 窓関数の設定\nconst window_name = env.get(\"WINDOW_TYPE\");\nlet N = input.length\nconst {window, acf} = window_function(window_name, N)\n\nlet windowedData = input.map((v, i) => [v[0] * window[i], v[1]])\n\nmsg.payload = {\n    data:windowedData,\n    acf: acf\n}\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 660,
+        "y": 180,
+        "wires": [
+            [
+                "027b2023c26a2543"
+            ]
+        ]
+    },
+    {
+        "id": "6b44c0c1c766c064",
+        "type": "function",
+        "z": "a99e786f7afaa3c5",
+        "name": "convert_complex",
+        "func": "let input = msg.payload\nlet complexArr = []\n\nlet prop = env.get(\"PROPERTY\")\nif (!prop) {\n    input.map((r)=>{\n        complexArr.push([r,0]);\n    })\n} else {\n    input.map((r)=>{\n        complexArr.push([r[prop], 0]);\n    })\n}\n\nmsg.payload = complexArr\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 490,
+        "y": 180,
+        "wires": [
+            [
+                "ba94fe073d8a95aa"
+            ]
+        ]
+    },
+    {
+        "id": "13fc51bf126d45b3",
+        "type": "switch",
+        "z": "a99e786f7afaa3c5",
+        "name": "batch_selector",
+        "property": "BATCH_TYPE",
+        "propertyType": "env",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "0",
+                "vt": "num"
+            },
+            {
+                "t": "eq",
+                "v": "1",
+                "vt": "num"
+            },
+            {
+                "t": "eq",
+                "v": "2",
+                "vt": "num"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 3,
+        "x": 120,
+        "y": 120,
+        "wires": [
+            [
+                "6b44c0c1c766c064"
+            ],
+            [
+                "8ec0eabe0d38b1d7"
+            ],
+            [
+                "5687864f8936f8de"
+            ]
+        ]
+    },
+    {
+        "id": "5687864f8936f8de",
+        "type": "batch",
+        "z": "a99e786f7afaa3c5",
+        "name": "秒数バッチ",
+        "mode": "interval",
+        "count": 10,
+        "overlap": 0,
+        "interval": "${BATCH_TIME}",
+        "allowEmptySequence": false,
+        "topics": [],
+        "x": 150,
+        "y": 260,
+        "wires": [
+            [
+                "2d76aca34735a866"
+            ]
+        ]
+    },
+    {
+        "id": "866808d7a9f51b30",
+        "type": "subflow",
+        "name": "ECG_flow",
+        "info": "",
+        "category": "",
+        "in": [
+            {
+                "x": 60,
+                "y": 80,
+                "wires": [
+                    {
+                        "id": "c35746fceee79177"
+                    }
+                ]
+            }
+        ],
+        "out": [
+            {
+                "x": 950,
+                "y": 80,
+                "wires": [
+                    {
+                        "id": "c35746fceee79177",
+                        "port": 0
+                    }
+                ]
+            },
+            {
+                "x": 960,
+                "y": 200,
+                "wires": [
+                    {
+                        "id": "4364bab5514a934a",
+                        "port": 0
+                    }
+                ]
+            },
+            {
+                "x": 960,
+                "y": 280,
+                "wires": [
+                    {
+                        "id": "a14c1b95a2c8c520",
+                        "port": 2
+                    }
+                ]
+            },
+            {
+                "x": 950,
+                "y": 360,
+                "wires": [
+                    {
+                        "id": "883f6e3f28603480",
+                        "port": 0
+                    }
+                ]
+            }
+        ],
+        "env": [
+            {
+                "name": "THRESHOLD",
+                "type": "num",
+                "value": "0.75"
+            }
+        ],
+        "meta": {},
+        "color": "#DDAA99",
+        "outputLabels": [
+            "ECG",
+            "HR, RRI",
+            "RRI_PSD",
+            "LFHF"
+        ]
+    },
+    {
+        "id": "c35746fceee79177",
+        "type": "function",
+        "z": "866808d7a9f51b30",
+        "name": "parse_ECG_data",
+        "func": "// [TODO] センサデータのタイムスタンプとHubのタイムスタンプが乖離していた場合のエラー処理を追加する\n\nlet input = msg.payload;\nlet tlen = msg.Ndata.Len;\nlet hubDate = msg.hubDate\n\nconst BUFFER_SIZE = 3;\nconst samplingTime = 80; // ms\n\nif (tlen == 0) {\n    return null;\n}\n\n// ====== タイムスタンプ算出用 =======\nconst contextName = {\n    startDate: \"$parent.startDate_\" + msg.port,\n    startTime: \"$parent.startTime_\" + msg.port,\n}\n\nconst getCurrentDate = (timeStamp) => {\n    let startDate = flow.get(contextName.startDate)\n    let startTime = flow.get(contextName.startTime)\n    let diffTime = timeStamp - startTime\n    let currentDate = new Date(startDate + diffTime)\n    return currentDate\n}\n// ===================================\n\nlet timeValue = parseInt(input[0] + input[1] + input[2] + input[3], 16)\nlet headDate = getCurrentDate(timeValue)\n\nlet ecgBuffer = input.slice(4)\nlet buffer = new Array()\n// lenのサイズに従ってBuffer配列を作成する\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    buffer[cnt] = new Array()\n    for (let i = 0; i < BUFFER_SIZE; i++) {\n        buffer[cnt].push(ecgBuffer[i + BUFFER_SIZE * cnt])\n    }\n}\n\nlet measurementTime\nfor (let cnt = 0; cnt< tlen; cnt++) {\n    let ecgValue = parseInt(buffer[cnt][0] + buffer[cnt][1] + buffer[cnt][2],16)\n    if (ecgValue & 0x800000) ecgValue |= ~0xffffff; // 24bit\n\n    measurementTime = new Date(headDate.getTime() + (samplingTime * cnt))\n    msg = {\n        Ndata: msg.Ndata,\n        payload: {\n            ecg: ecgValue,\n            Ndata: msg.Ndata,\n            timestamp: measurementTime\n        },\n        timestamp: measurementTime,\n        samplingTime: samplingTime,\n    }\n    node.send(msg);\n}\n\nreturn null;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 190,
+        "y": 80,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "4364bab5514a934a",
+        "type": "function",
+        "z": "866808d7a9f51b30",
+        "name": "calc_HeartRate",
+        "func": "let currentDate = msg.timestamp\n\nlet preDate = context.get(\"preDate\")\n\nif(!preDate){\n    context.set(\"preDate\",currentDate)\n    return null\n}\n\nlet RRI = currentDate.getTime() - preDate.getTime()\n\nlet BPM = 1000*60 / RRI\nBPM = Math.trunc(BPM)\n// node.log(\"RRI= \" + RRI + \" ms\")\n// node.log(\"BPM= \" + BPM)\n\nmsg.payload = {\n    HR: BPM,\n    RRI: RRI,\n}\ncontext.set(\"preDate\", currentDate)\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 200,
+        "wires": [
+            [
+                "cf16b234a1f4048d"
+            ]
+        ]
+    },
+    {
+        "id": "1105bd6a1519a43a",
+        "type": "switch",
+        "z": "866808d7a9f51b30",
+        "name": "Threshold",
+        "property": "payload",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "gte",
+                "v": "THRESHOLD",
+                "vt": "env"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 1,
+        "x": 440,
+        "y": 200,
+        "wires": [
+            [
+                "4364bab5514a934a"
+            ]
+        ]
+    },
+    {
+        "id": "cba6e0cdb7a6cfbf",
+        "type": "function",
+        "z": "866808d7a9f51b30",
+        "name": "batch_peak_detector",
+        "func": "let dataArr = msg.payload\n\n// 前後比較するインデックスの配列を作成する(1から開始、後ろから2番目まで)\nlet baseId = Array.from({length: (dataArr.length-2)},(_, i)=> i+1)\nlet peakLoc = baseId.filter((index) =>{\n    return dataArr[index].ecg > dataArr[index - 1].ecg && dataArr[index].ecg > dataArr[index + 1].ecg\n})\nif(peakLoc){\n    peakLoc.map(index=>{\n        msg = {\n            payload: dataArr[index].ecg,\n            timestamp: dataArr[index].timestamp,\n            Ndata: dataArr[index].Ndata,\n            samplingTime: msg.samplingTime\n        }\n        node.send(msg)\n    })\n    node.done()\n}else{\n    return null\n}\n// let peakData = peakLoc.map(index=> dataArr[index])\n\n// for (let i=0, length = peakData.length; i<length;i++){\n//     msg = {\n//         payload: peakData[i].ecg,\n//         timestamp: peakData[i].timestamp,\n//         Ndata: peakData[i].Ndata\n//     }\n//     node.send(msg);\n// }\n\nreturn null;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 260,
+        "y": 200,
+        "wires": [
+            [
+                "1105bd6a1519a43a"
+            ]
+        ]
+    },
+    {
+        "id": "cb48089396dccb45",
+        "type": "join",
+        "z": "866808d7a9f51b30",
+        "name": "",
+        "mode": "auto",
+        "build": "object",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": false,
+        "timeout": "",
+        "count": "",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "num",
+        "reduceFixup": "",
+        "x": 290,
+        "y": 160,
+        "wires": [
+            [
+                "cba6e0cdb7a6cfbf"
+            ]
+        ]
+    },
+    {
+        "id": "37f340977c397c0f",
+        "type": "batch",
+        "z": "866808d7a9f51b30",
+        "name": "2s",
+        "mode": "interval",
+        "count": "20",
+        "overlap": "2",
+        "interval": "2",
+        "allowEmptySequence": false,
+        "topics": [],
+        "x": 170,
+        "y": 160,
+        "wires": [
+            [
+                "cb48089396dccb45"
+            ]
+        ]
+    },
+    {
+        "id": "cf16b234a1f4048d",
+        "type": "delay",
+        "z": "866808d7a9f51b30",
+        "name": "",
+        "pauseType": "rate",
+        "timeout": "5",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 270,
+        "y": 260,
+        "wires": [
+            [
+                "a14c1b95a2c8c520"
+            ]
+        ]
+    },
+    {
+        "id": "a14c1b95a2c8c520",
+        "type": "subflow:a99e786f7afaa3c5",
+        "z": "866808d7a9f51b30",
+        "name": "",
+        "env": [
+            {
+                "name": "PROPERTY",
+                "value": "RRI",
+                "type": "str"
+            },
+            {
+                "name": "SAMPLING_RATE",
+                "value": "1000",
+                "type": "num"
+            },
+            {
+                "name": "BATCH_TYPE",
+                "value": "1",
+                "type": "str"
+            },
+            {
+                "name": "MSG_NUMBER",
+                "value": "32",
+                "type": "num"
+            },
+            {
+                "name": "OVERLAP",
+                "value": "31",
+                "type": "num"
+            }
+        ],
+        "x": 410,
+        "y": 260,
+        "wires": [
+            [],
+            [],
+            [
+                "883f6e3f28603480"
+            ]
+        ]
+    },
+    {
+        "id": "94ce85c2328d6ded",
+        "type": "comment",
+        "z": "866808d7a9f51b30",
+        "name": "LFHF",
+        "info": "> http://hclab.sakura.ne.jp/stress_novice_LFHF.html\n\nHF: 3~4秒程度の周期を持つ呼吸を信号源とする変動波\nLF: 約10秒程度の血圧変化を信号源とする変動波\n\nHF成分は副交感神経が緊張(活性化)している場合にのみ\n心拍変動に現れる\n\nLF成分は交感神経が緊張しているときも、\n副交感神経が緊張しているときも現れる\n\nリラックス状態、つまり副交感神経が活性化している場合は\nHF成分もLF成分も現れる\nストレス状態にある場合、つまり交感神経が活性化している場合は\nLF成分が現れる一方、HF成分が減少する\n\n従って、リラックス状態にあると相対的にHF成分が大きくなるため\nLF/HFの値が小さくなる\n逆にストレス状態にあるとHFに対してLF成分が大きくなるので\nLF/HFの値は大きくなる\n\nLF/HFがいくつ以上になるとストレス状態と判定するかという\n判定基準は、個人差や測定条件などにより変わる",
+        "x": 570,
+        "y": 320,
+        "wires": []
+    },
+    {
+        "id": "883f6e3f28603480",
+        "type": "function",
+        "z": "866808d7a9f51b30",
+        "name": "calc_LFHF",
+        "func": "// =================================\n// パワースペクトル密度の入力を受け取る\n// 入力データからキーである周波数のリストを取り出す\n// 周波数リストを文字列から数値に変換する\n// 周波数リストからLF(0.05Hz~0.15Hzまで)に該当するインデックスを取り出す\n// 周波数リストからHF(0.15Hz~0.40Hzまで)に該当するインデックスを取り出す\n// 各領域のインデックスを用いて積分値を算出する\n// LF / HFを計算し、ストレス指標とする\n// =================================\n\nconst VLFRANGE = [0, 0.05]      // 低周波数成分\nconst LFRANGE = [0.05, 0.15]    // 中間周波数成分\nconst HFRANGE = [0.15, 0.40]    // 高周波数成分\n\nlet input = msg.payload\n\n// PSDのオブジェクトからキーとバリューをリストにして取り出す\nlet hzKeys = Object.keys(input)\nlet hzValues = Object.values(input)\n\nlet hzList = []\nhzKeys.map(str => hzList.push(parseFloat(str)))\n\n// ========= 積分計算 =========\n\n// [WIP]単純な加算しか行っていないため、正確に積分値を計算する場合には修正が必要\n\nlet HF = 0\nlet LF = 0\nhzList.map((value, index)=>{\n    if((value >= LFRANGE[0]) &&(value <= LFRANGE[1])){\n        LF += hzValues[index]\n    }\n    if ((value >= HFRANGE[0]) && (value <= HFRANGE[1])) {\n        HF += hzValues[index]\n    }\n})\n\nlet LFHF\nif(HF == 0){\n    const offset = 1e-10\n    LFHF = LF / (HF + offset)\n} else{\n    LFHF = LF / HF\n}\n\nmsg.payload= {\n    LF: LF,\n    HF: HF,\n    LFHF: LFHF\n}\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 590,
+        "y": 360,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "007a7381dc88608d",
+        "type": "subflow",
+        "name": "Temp_flow",
+        "info": "",
+        "category": "",
+        "in": [
+            {
+                "x": 40,
+                "y": 40,
+                "wires": [
+                    {
+                        "id": "e34ee5a5e5ee2311"
+                    }
+                ]
+            }
+        ],
+        "out": [
+            {
+                "x": 1290,
+                "y": 200,
+                "wires": [
+                    {
+                        "id": "c2233bbae16adc19",
+                        "port": 0
+                    }
+                ]
+            },
+            {
+                "x": 1280,
+                "y": 260,
+                "wires": [
+                    {
+                        "id": "b473b2e1d9191a51",
+                        "port": 0
+                    }
+                ]
+            },
+            {
+                "x": 1280,
+                "y": 320,
+                "wires": [
+                    {
+                        "id": "d0df420b0522b56f",
+                        "port": 0
+                    }
+                ]
+            }
+        ],
+        "env": [],
+        "meta": {},
+        "color": "#DDAA99",
+        "inputLabels": [
+            "Input"
+        ],
+        "outputLabels": [
+            "Temperature",
+            "Humidity",
+            "Pressure"
+        ]
+    },
+    {
+        "id": "722618774a051b57",
+        "type": "join",
+        "z": "007a7381dc88608d",
+        "name": "",
+        "mode": "custom",
+        "build": "merged",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": false,
+        "timeout": "",
+        "count": "2",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "num",
+        "reduceFixup": "",
+        "x": 990,
+        "y": 260,
+        "wires": [
+            [
+                "b473b2e1d9191a51"
+            ]
+        ]
+    },
+    {
+        "id": "c2233bbae16adc19",
+        "type": "function",
+        "z": "007a7381dc88608d",
+        "name": "calc_Temp",
+        "func": "let adc_T = msg.payload.temperature\n\n// ----- calibration setting -----\n// const dig_T1 = parseInt(flow.get(\"dig_T1\"), 16)\n// const dig_T2 = parseInt(flow.get(\"dig_T2\"),16)\n// const dig_T3 = parseInt(flow.get(\"dig_T3\"), 16)\n\nconst dig_T1 = msg.calib.dig_T1\nconst dig_T2 = msg.calib.dig_T2\nconst dig_T3 = msg.calib.dig_T3\n\n// global value \nlet var1 = ((((adc_T >> 3) - (dig_T1 << 1))) * (dig_T2)) >> 11;\nlet var2 = (((((adc_T >> 4) - (dig_T1)) * ((adc_T >> 4) - (dig_T1))) >> 12) * (dig_T3)) >> 14;\n\nconst t_fine = var1 + var2\n\n// calc Temperature\nlet temp_cal = (t_fine * 5 + 128) >> 8;\n\nconst temp = temp_cal / 100.0\n\nmsg.payload = temp\n\nconst tfineMsg = {\n    payload: {\n        t_fine: t_fine\n    }\n}\n\nnode.send([msg, tfineMsg]);\n\nreturn null;\n",
+        "outputs": 2,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 850,
+        "y": 200,
+        "wires": [
+            [],
+            [
+                "722618774a051b57",
+                "da095755370a0478"
+            ]
+        ]
+    },
+    {
+        "id": "d4ebc531a47d74b5",
+        "type": "function",
+        "z": "007a7381dc88608d",
+        "name": "separate_Temp",
+        "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nconst samplingTime = 1000\nconst BUFFER_SIZE = 11\n\ntlen = 1;\n\nif (tlen == 0) {\n    return null;\n}\n\nlet datetime = msg.receiveDate\n\nlet buffer = []\n// lenのサイズに従ってBuffer配列を作成する\nfor (let cnt = 0; cnt < tlen; cnt++){\n    buffer[cnt] = new Array(BUFFER_SIZE)\n    for (let i = 0; i < BUFFER_SIZE; i++){\n        buffer[cnt][i] = input[i + BUFFER_SIZE*cnt]\n        buffer[cnt][i] = parseInt(buffer[cnt][i],16)\n    }\n}\n\n// Buffer配列をTemp, press, hum, timestampに分ける\nfor (let cnt = 0; cnt < tlen; cnt++){\n    let dataTime = new Date(datetime.getTime() - (samplingTime * (tlen - cnt - 1)))\n    dataTime = dataTime.getTime();\n\n    // let tempValue = (parseInt(buffer[cnt][2],16)<<16&0xf0) + (parseInt(buffer[cnt][1],16)<<8) + parseInt(buffer[cnt][0], 16)\n    // let pressValue = (parseInt(buffer[cnt][4], 16)<<12) + (parseInt(buffer[cnt][3], 16)<<4) + (parseInt(buffer[cnt][2],16)&0x0f)\n    // let humValue = (parseInt(buffer[cnt][6], 16)<<8) + parseInt(buffer[cnt][5], 16)\n    // let timeValue = parseInt((buffer[cnt][7] + buffer[cnt][8] + buffer[cnt][9] + buffer[cnt][10]),16)\n\n    let tempValue = ((buffer[cnt][2]<<16&0xf0)) | ((buffer[cnt][1])<<8) | (buffer[cnt][0])\n    let pressValue = (buffer[cnt][4] << 12) | ((buffer[cnt][3]) << 4) | (0x0f&(buffer[cnt][2]))\n    let humValue = ((buffer[cnt][6])<<8) | (buffer[cnt][5])\n    let timeValue = (buffer[cnt][7]<<24 | buffer[cnt][8]<<16 | buffer[cnt][9]<<8 | buffer[cnt][10])\n\n    let tempMsg = {\n        Ndata: msg.Ndata,\n        calib: msg.calib,\n        payload: tempValue,\n        timestamp: dataTime,\n        nodeTime: timeValue\n    };\n    let humMsg = {\n        Ndata: msg.Ndata,\n        calib: msg.calib,\n        payload: humValue,\n        timestamp: dataTime,\n        nodeTime: timeValue\n    };\n    let pressMsg = {\n        Ndata: msg.Ndata,\n        calib: msg.calib,\n        payload: pressValue,\n        timestamp: dataTime,\n        nodeTime: timeValue\n    };\n    node.send([tempMsg, humMsg, pressMsg]);\n}\n\nreturn null;\n",
+        "outputs": 3,
+        "noerr": 0,
+        "initialize": "// ここに記述したコードは、ノードをデプロイした時に\n// 一度だけ実行されます。\n\nvar calibArr = [\n    \"e0\",\"6e\",\"53\",\"69\",\"32\",\n    \"00\",\"a7\",\"8f\",\"29\",\"d7\",\n    \"d0\",\"0b\",\"13\",\"1d\",\"64\",\n    \"00\",\"f9\",\"ff\",\"ac\",\"26\",\n    \"0a\",\"d8\",\"bd\",\"10\",\"4b\",\n    \"6b\",\"01\",\"00\",\"13\",\"2c\",\n    \"03\",\"1e\"\n]\n\nvar i2cRxBuffer = calibArr.map(str => parseInt(str, 16));\n\nvar dig_T1 = (i2cRxBuffer[1] << 8) | i2cRxBuffer[0];\nvar dig_T2 = (i2cRxBuffer[3] << 8) | i2cRxBuffer[2];\nvar dig_T3 = (i2cRxBuffer[5] << 8) | i2cRxBuffer[4];\nvar dig_P1 = (i2cRxBuffer[7] << 8) | i2cRxBuffer[6];\nvar dig_P2 = (i2cRxBuffer[9] << 8) | i2cRxBuffer[8];\nvar dig_P3 = (i2cRxBuffer[11] << 8) | i2cRxBuffer[10];\nvar dig_P4 = (i2cRxBuffer[13] << 8) | i2cRxBuffer[12];\nvar dig_P5 = (i2cRxBuffer[15] << 8) | i2cRxBuffer[14];\nvar dig_P6 = (i2cRxBuffer[17] << 8) | i2cRxBuffer[16];\nvar dig_P7 = (i2cRxBuffer[19] << 8) | i2cRxBuffer[18];\nvar dig_P8 = (i2cRxBuffer[21] << 8) | i2cRxBuffer[20];\nvar dig_P9 = (i2cRxBuffer[23] << 8) | i2cRxBuffer[22];\nvar dig_H1 = (i2cRxBuffer[24]);\nvar dig_H2 = (i2cRxBuffer[26] << 8) | i2cRxBuffer[25];\nvar dig_H3 = (i2cRxBuffer[27]);\nvar dig_H4 = (i2cRxBuffer[28] << 4) | (0x0F & i2cRxBuffer[29]);\nvar dig_H5 = (i2cRxBuffer[30] << 4) | ((i2cRxBuffer[29] >> 4) & 0x0F);\nvar dig_H6 = (i2cRxBuffer[31]);\n\n// この下にflow setで値を格納する\nflow.set(\"dig_T1\", dig_T1);\nflow.set(\"dig_T2\", dig_T2);\nflow.set(\"dig_T3\", dig_T3);\nflow.set(\"dig_H1\", dig_H1);\nflow.set(\"dig_H2\", dig_H2);\nflow.set(\"dig_H3\", dig_H3);\nflow.set(\"dig_H4\", dig_H4);\nflow.set(\"dig_H5\", dig_H5);\nflow.set(\"dig_H6\", dig_H6);\nflow.set(\"dig_P1\", dig_P1);\nflow.set(\"dig_P2\", dig_P2);\nflow.set(\"dig_P3\", dig_P3);\nflow.set(\"dig_P4\", dig_P4);\nflow.set(\"dig_P5\", dig_P5);\nflow.set(\"dig_P6\", dig_P6);\nflow.set(\"dig_P7\", dig_P7);\nflow.set(\"dig_P8\", dig_P8);\nflow.set(\"dig_P9\", dig_P9);",
+        "finalize": "",
+        "libs": [],
+        "x": 500,
+        "y": 260,
+        "wires": [
+            [
+                "256bcc70c1835d3f"
+            ],
+            [
+                "30e05f9049aa7234"
+            ],
+            [
+                "9177b9d5c8ae2185"
+            ]
+        ]
+    },
+    {
+        "id": "b473b2e1d9191a51",
+        "type": "function",
+        "z": "007a7381dc88608d",
+        "name": "calc_Hum",
+        "func": "let adc_H = msg.payload.humidity\nlet t_fine = msg.payload.t_fine\n\n// ----- calibration setting -----\n// const dig_H1 = parseInt(flow.get(\"dig_H1\"), 16)\n// const dig_H2 = parseInt(flow.get(\"dig_H2\"), 16)\n// const dig_H3 = parseInt(flow.get(\"dig_H3\"), 16)\n// const dig_H4 = parseInt(flow.get(\"dig_H4\"), 16)\n// const dig_H5 = parseInt(flow.get(\"dig_H5\"), 16)\n// const dig_H6 = parseInt(flow.get(\"dig_H6\"), 16)\n\nconst dig_H1 = msg.calib.dig_H1\nconst dig_H2 = msg.calib.dig_H2\nconst dig_H3 = msg.calib.dig_H3\nconst dig_H4 = msg.calib.dig_H4\nconst dig_H5 = msg.calib.dig_H5\nconst dig_H6 = msg.calib.dig_H6\n\n//calc Humidity\nlet v_x1 = (t_fine - (76800));\nv_x1 = (((((adc_H << 14) - ((dig_H4) << 20) - ((dig_H5) * v_x1)) + (16384)) >> 15) * (((((((v_x1 * (dig_H6)) >> 10) * (((v_x1 * (dig_H3)) >> 11) + (32768))) >> 10) + (2097152)) * (dig_H2) + 8192) >> 14));\nv_x1 = (v_x1 - (((((v_x1 >> 15) * (v_x1 >> 15)) >> 7) * (dig_H1)) >> 4));\nv_x1 = (v_x1 < 0 ? 0 : v_x1);\nv_x1 = (v_x1 > 419430400 ? 419430400 : v_x1);\n\nlet humi_cal = v_x1 >> 12\n\nconst humi = humi_cal / 1024.0\n\nmsg.payload = humi\n\nreturn msg;\n\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1120,
+        "y": 260,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "d0df420b0522b56f",
+        "type": "function",
+        "z": "007a7381dc88608d",
+        "name": "calc_Press",
+        "func": "let adc_P = msg.payload.pressure\nconst t_fine = msg.payload.t_fine\n\n// ----- calibration setting -----\n// const dig_P1 = parseInt(flow.get(\"dig_P1\"), 16)\n// const dig_P2 = parseInt(flow.get(\"dig_P2\"), 16)\n// const dig_P3 = parseInt(flow.get(\"dig_P3\"), 16)\n// const dig_P4 = parseInt(flow.get(\"dig_P4\"), 16)\n// const dig_P5 = parseInt(flow.get(\"dig_P5\"), 16)\n// const dig_P6 = parseInt(flow.get(\"dig_P6\"), 16)\n// const dig_P7 = parseInt(flow.get(\"dig_P7\"), 16)\n// const dig_P8 = parseInt(flow.get(\"dig_P8\"), 16)\n// const dig_P9 = parseInt(flow.get(\"dig_P9\"), 16)\n\nconst dig_P1 = msg.calib.dig_P1\nconst dig_P2 = msg.calib.dig_P2\nconst dig_P3 = msg.calib.dig_P3\nconst dig_P4 = msg.calib.dig_P4\nconst dig_P5 = msg.calib.dig_P5\nconst dig_P6 = msg.calib.dig_P6\nconst dig_P7 = msg.calib.dig_P7\nconst dig_P8 = msg.calib.dig_P8\nconst dig_P9 = msg.calib.dig_P9\n\n// calc Pressure\nlet var1 = (t_fine >> 1) - 64000;\nlet var2 = (((var1 >> 2) * (var1 >> 2)) >> 11) * dig_P6;\nvar2 = var2 + ((var1 * dig_P5) << 1);\nvar2 = (var2 >> 2) + (dig_P4 << 16);\nvar1 = (((dig_P3 * (((var1 >> 2) * (var1 >> 2)) >> 13)) >> 3) + ((dig_P2 * var1) >> 1)) >> 18;\nvar1 = ((((32768 + var1)) * dig_P1) >> 15);\nif (var1 == 0) {\n    return 0;\n}\nlet P = (((1048576 - adc_P) - (var2 >> 12))) * 3125;\nif (P < 0x80000000) {\n    P = (P << 1) / var1;\n} else {\n    P = (P / var1) * 2;\n}\nvar1 = (dig_P9 * ((((P >> 3) * (P >> 3)) >> 13))) >> 12;\nvar2 = (((P >> 2)) * dig_P8) >> 13;\nP = (P + ((var1 + var2 + dig_P7) >> 4));\n\nconst pres = P / 100.0\n\nmsg.payload = pres\n\nreturn msg;\n\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1130,
+        "y": 320,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "da095755370a0478",
+        "type": "join",
+        "z": "007a7381dc88608d",
+        "name": "",
+        "mode": "custom",
+        "build": "merged",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": false,
+        "timeout": "",
+        "count": "2",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "",
+        "reduceFixup": "",
+        "x": 990,
+        "y": 320,
+        "wires": [
+            [
+                "d0df420b0522b56f"
+            ]
+        ]
+    },
+    {
+        "id": "9177b9d5c8ae2185",
+        "type": "template",
+        "z": "007a7381dc88608d",
+        "name": "pressure",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n    \"pressure\": {{payload}}\n}",
+        "output": "json",
+        "x": 680,
+        "y": 320,
+        "wires": [
+            [
+                "da095755370a0478"
+            ]
+        ]
+    },
+    {
+        "id": "30e05f9049aa7234",
+        "type": "template",
+        "z": "007a7381dc88608d",
+        "name": "humidity",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n    \"humidity\": {{payload}} \n}",
+        "output": "json",
+        "x": 680,
+        "y": 260,
+        "wires": [
+            [
+                "722618774a051b57"
+            ]
+        ]
+    },
+    {
+        "id": "256bcc70c1835d3f",
+        "type": "template",
+        "z": "007a7381dc88608d",
+        "name": "temperature",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n    \"temperature\": {{payload}} \n}",
+        "output": "json",
+        "x": 690,
+        "y": 200,
+        "wires": [
+            [
+                "c2233bbae16adc19"
+            ]
+        ]
+    },
+    {
+        "id": "e34ee5a5e5ee2311",
+        "type": "switch",
+        "z": "007a7381dc88608d",
+        "name": "",
+        "property": "Ndata.SensorType",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "1",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "2",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "3",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "4",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "5",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "6",
+                "vt": "str"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 6,
+        "x": 90,
+        "y": 120,
+        "wires": [
+            [
+                "e6d67bc85e4961f3"
+            ],
+            [],
+            [],
+            [],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "e6d67bc85e4961f3",
+        "type": "change",
+        "z": "007a7381dc88608d",
+        "name": "calib_1",
+        "rules": [
+            {
+                "t": "set",
+                "p": "calib",
+                "pt": "msg",
+                "to": "42 70 3b 69 32 0 b2 8d f2 d6 d0 b f4 17 51 0 f9 ff ac 26 a d8 bd 10 4b 65 1 0 14 2b 3 1e",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 260,
+        "y": 60,
+        "wires": [
+            [
+                "21ce22fc77566abd"
+            ]
+        ]
+    },
+    {
+        "id": "21ce22fc77566abd",
+        "type": "function",
+        "z": "007a7381dc88608d",
+        "name": "set_calib",
+        "func": "let calibData = msg.calib\n\nlet calibArr = calibData.split(\" \")\n\nvar i2cRxBuffer = calibArr.map(str => parseInt(str, 16));\n\nvar dig_T1 = (i2cRxBuffer[1] << 8) | i2cRxBuffer[0];\nvar dig_T2 = (i2cRxBuffer[3] << 8) | i2cRxBuffer[2];\nvar dig_T3 = (i2cRxBuffer[5] << 8) | i2cRxBuffer[4];\nvar dig_P1 = (i2cRxBuffer[7] << 8) | i2cRxBuffer[6];\nvar dig_P2 = (i2cRxBuffer[9] << 8) | i2cRxBuffer[8];\nvar dig_P3 = (i2cRxBuffer[11] << 8) | i2cRxBuffer[10];\nvar dig_P4 = (i2cRxBuffer[13] << 8) | i2cRxBuffer[12];\nvar dig_P5 = (i2cRxBuffer[15] << 8) | i2cRxBuffer[14];\nvar dig_P6 = (i2cRxBuffer[17] << 8) | i2cRxBuffer[16];\nvar dig_P7 = (i2cRxBuffer[19] << 8) | i2cRxBuffer[18];\nvar dig_P8 = (i2cRxBuffer[21] << 8) | i2cRxBuffer[20];\nvar dig_P9 = (i2cRxBuffer[23] << 8) | i2cRxBuffer[22];\nvar dig_H1 = (i2cRxBuffer[24]);\nvar dig_H2 = (i2cRxBuffer[26] << 8) | i2cRxBuffer[25];\nvar dig_H3 = (i2cRxBuffer[27]);\nvar dig_H4 = (i2cRxBuffer[28] << 4) | (0x0F & i2cRxBuffer[29]);\nvar dig_H5 = (i2cRxBuffer[30] << 4) | ((i2cRxBuffer[29] >> 4) & 0x0F);\nvar dig_H6 = (i2cRxBuffer[31]);\n\nmsg.calib = {\n    \"dig_T1\": dig_T1,\n    \"dig_T2\": dig_T2,\n    \"dig_T3\": dig_T3,\n    \"dig_P1\": dig_P1,\n    \"dig_P2\": dig_P2,\n    \"dig_P3\": dig_P3,\n    \"dig_P4\": dig_P4,\n    \"dig_P5\": dig_P5,\n    \"dig_P6\": dig_P6,\n    \"dig_P7\": dig_P7,\n    \"dig_P8\": dig_P8,\n    \"dig_P9\": dig_P9,\n    \"dig_H1\": dig_H1,\n    \"dig_H2\": dig_H2,\n    \"dig_H3\": dig_H3,\n    \"dig_H4\": dig_H4,\n    \"dig_H5\": dig_H5,\n    \"dig_H6\": dig_H6,\n}\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 320,
+        "y": 260,
+        "wires": [
+            [
+                "d4ebc531a47d74b5"
+            ]
+        ]
+    },
+    {
+        "id": "51941ff1083ce014",
+        "type": "subflow",
+        "name": "SpO2_flow",
+        "info": "",
+        "category": "",
+        "in": [
+            {
+                "x": 40,
+                "y": 60,
+                "wires": [
+                    {
+                        "id": "a5c475c5f47aab68"
+                    }
+                ]
+            }
+        ],
+        "out": [
+            {
+                "x": 1310,
+                "y": 260,
+                "wires": [
+                    {
+                        "id": "13158c262ae9d34a",
+                        "port": 0
+                    }
+                ]
+            },
+            {
+                "x": 630,
+                "y": 400,
+                "wires": [
+                    {
+                        "id": "aa77d7ff0df419b0",
+                        "port": 0
+                    }
+                ]
+            },
+            {
+                "x": 1130,
+                "y": 60,
+                "wires": [
+                    {
+                        "id": "a5c475c5f47aab68",
+                        "port": 0
+                    }
+                ]
+            }
+        ],
+        "env": [],
+        "meta": {
+            "module": "SpO2_flow"
+        },
+        "color": "#DDAA99",
+        "outputLabels": [
+            "SpO2",
+            "rawValue(Red, IR)",
+            "PPG"
+        ]
+    },
+    {
+        "id": "48d63b321381de68",
+        "type": "function",
+        "z": "51941ff1083ce014",
+        "name": "Separate_RED_IR",
+        "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nlet currentDate = msg.currentDate\n\nconst samplingTime = 150\n\nif (tlen == 0){\n    return null;\n}\n\nconst bitSize = 4;\nconst BUFFER_SIZE = 6;\nconst step = BUFFER_SIZE * bitSize;\n// let datetime = msg.receiveDate\n\n// let buffer = []\nlet buffer = new Array()\n\nconsole.log(\"========================\")\nconsole.log(\"spo2 process start...\")\n\nlet dcnt = 0;\nfor (let ccnt=0, l=tlen*2; ccnt<l; ccnt++) {\n    // subBufferにREDまたはIRの値をBUFFER SIZE分だけ格納する\n    let subBuffer = new Array()\n    for (let i = 0; i < BUFFER_SIZE; i++) {\n        // buffer[ccnt].push(parseInt( \n        //     String(input[dcnt * step + i * bitSize]) +\n        //     String(input[dcnt * step + i * bitSize + 1]) +\n        //     String(input[dcnt * step + i * bitSize + 2]) +\n        //     String(input[dcnt * step + i * bitSize + 3])\n        // ), 16)\n        let intItem = parseInt(\n            (String(input[dcnt * step + i * bitSize]) +\n            String(input[dcnt * step + i * bitSize + 1]) +\n            String(input[dcnt * step + i * bitSize + 2]) +\n            String(input[dcnt * step + i * bitSize + 3])), 16)\n            // String(input[dcnt * step + i * bitSize]) +\n            // String(input[dcnt * step + i * bitSize + 1]) +\n            // String(input[dcnt * step + i * bitSize + 2]) +\n            // String(input[dcnt * step + i * bitSize + 3]), 16)\n        subBuffer.push(intItem)\n    }\n    buffer.push(subBuffer)\n    dcnt += 1;\n}\n\nconsole.log(\"buffer: \" + buffer)\n\n// REDとIRのセットの数だけ回す\nfor (let i = 0; i < tlen; i++) {\n    // bufferの長さ分、REDとIRのペアを取り出して送信する\n    for (let j = 0; j < BUFFER_SIZE; j++){\n        // データの測定時刻を算出する\n        let measurementTime = new Date(currentDate.getTime() - samplingTime * ((tlen - i)*(BUFFER_SIZE - j) - 1))\n\n        console.log(\"RED: \" + buffer[i * 2][j] + \" IR: \" + buffer[i * 2 + 1][j])\n        if (buffer[i*2][j] == 0 || buffer[i*2+1][j] == 0){\n            node.done();\n            return null;\n        }\n        else{\n            let redMsg = {\n                Ndata: msg.Ndata,\n                payload: buffer[i*2][j],\n                timestamp: measurementTime\n            }\n            let irMsg = {\n                Ndata: msg.Ndata,\n                payload: buffer[i*2+1][j],\n                timestamp: measurementTime\n            }\n            node.send([redMsg, irMsg]);\n        }\n    }\n    node.done();\n}\n\n// for (let i = 0; i < BUFFER_SIZE; i++) {\n//     for (let j = 0; j < tlen; j++) {\n//         let measurementTime = new Date(currentDate.getTime() - (samplingTime * (BUFFER_SIZE - i - 1)))\n\n//         if (buffer[j * 2][i] == 0 || buffer[j * 2 + 1][i] == 0){\n//             node.done();\n//             return null;\n//         }\n//         else{\n\n//             let redMsg = {\n//                 Ndata: msg.Ndata,\n//                 payload: buffer[j * 2][i],\n//                 timestamp: measurementTime\n//             };\n//             let irMsg = {\n//                 Ndata: msg.Ndata,\n//                 payload: buffer[j * 2 + 1][i],\n//                 timestamp: measurementTime\n//             };\n//             node.send([redMsg, irMsg]);\n\n//         }\n//     };\n//     node.done();\n// }\n\nreturn null;\n",
+        "outputs": 2,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 150,
+        "y": 260,
+        "wires": [
+            [
+                "a41263ea750b45d1",
+                "da1640a613fed430"
+            ],
+            [
+                "d04f95a734b79f7a",
+                "3e908ed22509f98a"
+            ]
+        ]
+    },
+    {
+        "id": "aef226ad7dbd90f6",
+        "type": "function",
+        "z": "51941ff1083ce014",
+        "name": "calc deltaA",
+        "func": "// 配列の平均を返す関数\nconst calcDC = (data) => {\n    const len = data.length;\n    if (!len){\n        return 0;\n    }\n    let dc = data.reduce((sum, val) => sum + val, 0) / len;\n    return dc;\n}\n\nconst calcACDC = (data) => {\n    let len = data.length;\n    if(!len){\n        return 0;\n    }\n    let dc = calcDC(data);\n    let ac = data.reduce((acc, val) => acc + Math.abs(val - dc), 0) / len;\n    return {ac, dc};\n}\n\nlet arr = msg.payload\nlet {ac, dc} = calcACDC(arr) \n\nif(dc == 0){\n    dc = 0.001 // 0除算対策\n    msg.payload = ac / dc\n} else {\n    msg.payload = ac / dc\n}\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 710,
+        "y": 220,
+        "wires": [
+            [
+                "b5926ab28b9843f1"
+            ]
+        ]
+    },
+    {
+        "id": "a41263ea750b45d1",
+        "type": "batch",
+        "z": "51941ff1083ce014",
+        "name": "RED recent 4 message",
+        "mode": "count",
+        "count": "4",
+        "overlap": "3",
+        "interval": 10,
+        "allowEmptySequence": false,
+        "topics": [],
+        "x": 390,
+        "y": 220,
+        "wires": [
+            [
+                "06058438e0452fba"
+            ]
+        ]
+    },
+    {
+        "id": "d04f95a734b79f7a",
+        "type": "batch",
+        "z": "51941ff1083ce014",
+        "name": "IR recent 4 message",
+        "mode": "count",
+        "count": "4",
+        "overlap": "3",
+        "interval": 10,
+        "allowEmptySequence": false,
+        "topics": [],
+        "x": 380,
+        "y": 300,
+        "wires": [
+            [
+                "f8de2ce6878afc6b"
+            ]
+        ]
+    },
+    {
+        "id": "06058438e0452fba",
+        "type": "join",
+        "z": "51941ff1083ce014",
+        "name": "",
+        "mode": "auto",
+        "build": "object",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": true,
+        "timeout": "",
+        "count": "",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "",
+        "reduceFixup": "",
+        "x": 570,
+        "y": 220,
+        "wires": [
+            [
+                "aef226ad7dbd90f6"
+            ]
+        ]
+    },
+    {
+        "id": "f8de2ce6878afc6b",
+        "type": "join",
+        "z": "51941ff1083ce014",
+        "name": "",
+        "mode": "auto",
+        "build": "object",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": "false",
+        "timeout": "",
+        "count": "",
+        "reduceRight": false,
+        "x": 570,
+        "y": 300,
+        "wires": [
+            [
+                "3c76aa08eb945a48"
+            ]
+        ]
+    },
+    {
+        "id": "3c76aa08eb945a48",
+        "type": "function",
+        "z": "51941ff1083ce014",
+        "name": "calc deltaA",
+        "func": "// 配列の平均を返す関数\nconst calcDC = (data) => {\n    const len = data.length;\n    if (!len) {\n        return 0;\n    }\n    let dc = data.reduce((sum, val) => sum + val, 0) / len;\n    return dc;\n}\n\nconst calcACDC = (data) => {\n    let len = data.length;\n    if (!len) {\n        return 0;\n    }\n    let dc = calcDC(data);\n    let ac = data.reduce((acc, val) => acc + Math.abs(val - dc), 0) / len;\n    return { ac, dc };\n}\n\nlet arr = msg.payload\nlet { ac, dc } = calcACDC(arr)\n\nif (dc == 0) {\n    dc = 0.001 // 0除算対策\n    msg.payload = ac / dc\n} else {\n    msg.payload = ac / dc\n}\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 710,
+        "y": 300,
+        "wires": [
+            [
+                "ca4551334d94072c"
+            ]
+        ]
+    },
+    {
+        "id": "b4275f3ff3d64852",
+        "type": "join",
+        "z": "51941ff1083ce014",
+        "name": "",
+        "mode": "custom",
+        "build": "merged",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": false,
+        "timeout": "",
+        "count": "2",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "num",
+        "reduceFixup": "",
+        "x": 1010,
+        "y": 260,
+        "wires": [
+            [
+                "13158c262ae9d34a",
+                "1a1df21984e17d46",
+                "96b640946f50dbd9"
+            ]
+        ]
+    },
+    {
+        "id": "b5926ab28b9843f1",
+        "type": "template",
+        "z": "51941ff1083ce014",
+        "name": "Red_deltaA",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n    \"Red_deltaA\": {{payload}}\n}",
+        "output": "json",
+        "x": 870,
+        "y": 220,
+        "wires": [
+            [
+                "b4275f3ff3d64852"
+            ]
+        ]
+    },
+    {
+        "id": "ca4551334d94072c",
+        "type": "template",
+        "z": "51941ff1083ce014",
+        "name": "Ir_deltaA",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n    \"Ir_deltaA\": {{payload}}\n}",
+        "output": "json",
+        "x": 860,
+        "y": 300,
+        "wires": [
+            [
+                "b4275f3ff3d64852"
+            ]
+        ]
+    },
+    {
+        "id": "13158c262ae9d34a",
+        "type": "function",
+        "z": "51941ff1083ce014",
+        "name": "calc_SpO2",
+        "func": "let red_delta = msg.payload.Red_deltaA\nlet ir_delta = msg.payload.Ir_deltaA\n\nif (ir_delta == 0){\n    ir_delta = 0.000001\n}\n\nconst calcSpo2 = (red_delta, ir_delta) => {\n    // const R = Math.round(red_ac / red_dc) / Math.round(ir_ac / ir_dc);\n    const R = red_delta / ir_delta;\n    const a = -45.06;\n    const b = 30.354;\n    const c = 94.845;\n\n    const res = a * R * R + b * R + c;\n    return res;\n}\n\nlet spo2 = calcSpo2(red_delta, ir_delta)\nspo2 = spo2.toPrecision(5)\n\nmsg.payload = spo2\n// msg.payload = {\n//     \"SpO2\": spo2,\n//     \"Red_d\": red_delta,\n//     \"Ir_d\": ir_delta\n// }\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1170,
+        "y": 260,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "1a1df21984e17d46",
+        "type": "debug",
+        "z": "51941ff1083ce014",
+        "d": true,
+        "name": "delta_debug",
+        "active": true,
+        "tosidebar": false,
+        "console": true,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1200,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "aa77d7ff0df419b0",
+        "type": "join",
+        "z": "51941ff1083ce014",
+        "name": "",
+        "mode": "custom",
+        "build": "merged",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": false,
+        "timeout": "",
+        "count": "2",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "",
+        "reduceFixup": "",
+        "x": 470,
+        "y": 400,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "8d3b0bb4c024e92d",
+        "type": "debug",
+        "z": "51941ff1083ce014",
+        "d": true,
+        "name": "debug 21",
+        "active": true,
+        "tosidebar": true,
+        "console": true,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1310,
+        "y": 320,
+        "wires": []
+    },
+    {
+        "id": "3e908ed22509f98a",
+        "type": "template",
+        "z": "51941ff1083ce014",
+        "name": "Ir",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n    \"Ir\": {{payload}} \n}",
+        "output": "json",
+        "x": 310,
+        "y": 460,
+        "wires": [
+            [
+                "aa77d7ff0df419b0"
+            ]
+        ]
+    },
+    {
+        "id": "da1640a613fed430",
+        "type": "template",
+        "z": "51941ff1083ce014",
+        "name": "Red",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n    \"Red\": {{payload}} \n}",
+        "output": "json",
+        "x": 310,
+        "y": 400,
+        "wires": [
+            [
+                "aa77d7ff0df419b0"
+            ]
+        ]
+    },
+    {
+        "id": "96b640946f50dbd9",
+        "type": "function",
+        "z": "51941ff1083ce014",
+        "name": "calc_R",
+        "func": "let red_delta = msg.payload.Red_deltaA\nlet ir_delta = msg.payload.Ir_deltaA\n\nif(ir_delta == 0){\n    ir_delta = 0.000001\n}\n\nconst R = red_delta / ir_delta;\n\nmsg.payload = R\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1150,
+        "y": 320,
+        "wires": [
+            [
+                "8d3b0bb4c024e92d"
+            ]
+        ]
+    },
+    {
+        "id": "a5c475c5f47aab68",
+        "type": "function",
+        "z": "51941ff1083ce014",
+        "name": "parse_PPG_data",
+        "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nlet hubDate = msg.hubDate\n\nconst BUFFER_SIZE = 3;\nconst samplingTime = 40; // ms\n\nif (tlen == 0) {\n    return null;\n}\n// ======= Nodeタイムスタンプ管理用 ======= \nconst contextName = {\n    // Hubのタイムスタンプを使用する\n    startDate: \"$parent.startDate_\" + msg.port,\n    startTime: \"$parent.startTime_\" + msg.port,\n}\n\nconst getCurrentDate = (timeStamp) => {\n    let startDate = flow.get(contextName.startDate)\n    let startTime = flow.get(contextName.startTime)\n    let diffTime = timeStamp - startTime\n    let currentDate = new Date(startDate + diffTime)\n    return currentDate\n}\n\n// ========================================================\n\nlet timeValue = parseInt(input[0] + input[1] + input[2] + input[3], 16)\n\n// contextデータを使用して時刻を算出する\nlet headDate = getCurrentDate(timeValue)\n\nlet ppgBuffer = input.slice(4)\nlet buffer = new Array()\n// lenのサイズに従ってBuffer配列を作成する\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    buffer[cnt] = new Array()\n    for (let i = 0; i < BUFFER_SIZE; i++) {\n        buffer[cnt].push(ppgBuffer[i + BUFFER_SIZE * cnt])\n    }\n}\n\nfor (let cnt = 0; cnt<tlen; cnt++) {\n    let ppgValue = parseInt(buffer[cnt][0] + buffer[cnt][1] + buffer[cnt][2],16)\n    if (ppgValue & 0x800000) ppgValue |= ~0xffffff; //24bit\n    \n    let measurementTime = new Date(headDate.getTime() + (samplingTime * cnt))\n    msg = {\n        Ndata: msg.Ndata,\n        payload: {\n            ppg: ppgValue,\n            Ndata: msg.Ndata,\n            timestamp: measurementTime\n        },\n        timestamp: measurementTime,\n        samplingTime: samplingTime,\n    }\n    node.send(msg);\n}\n\nreturn null;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 190,
+        "y": 60,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "b6720ac1884745ba",
+        "type": "tab",
+        "label": "SmartBAN_hub",
+        "disabled": false,
+        "info": "",
+        "env": [
+            {
+                "name": "USE_BATCH",
+                "value": "true",
+                "type": "bool"
+            }
+        ]
+    },
+    {
+        "id": "0d42ee5a3ab4da0f",
+        "type": "switch",
+        "z": "b6720ac1884745ba",
+        "name": "Switch by SensorType",
+        "property": "Ndata.SensorType",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "1",
+                "vt": "num"
+            },
+            {
+                "t": "eq",
+                "v": "2",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "3",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "4",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "5",
+                "vt": "str"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 5,
+        "x": 160,
+        "y": 340,
+        "wires": [
+            [
+                "41ecf268f5a2dc90"
+            ],
+            [
+                "80c70cabb4e637d7"
+            ],
+            [
+                "1ce32fcd387a62e5"
+            ],
+            [
+                "74adaed7e5943e8f"
+            ],
+            [
+                "07c05c694cf427b3"
+            ]
+        ]
+    },
+    {
+        "id": "e0db3532cf1450af",
+        "type": "debug",
+        "z": "b6720ac1884745ba",
+        "name": "msg.payload",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1150,
+        "y": 400,
+        "wires": []
+    },
+    {
+        "id": "44e77a7b451ac92a",
+        "type": "subflow:51941ff1083ce014",
+        "z": "b6720ac1884745ba",
+        "name": "SpO2_flow",
+        "x": 990,
+        "y": 1200,
+        "wires": [
+            [
+                "89d9fbb343c8328f"
+            ],
+            [
+                "0a61cab49e6bbb5a"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "1653b64fdf974414",
+        "type": "ui_text",
+        "z": "b6720ac1884745ba",
+        "group": "72c68556b47d4bca",
+        "order": 3,
+        "width": 0,
+        "height": 0,
+        "name": "",
+        "label": "海面",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "className": "",
+        "x": 510,
+        "y": 1520,
+        "wires": []
+    },
+    {
+        "id": "0c587daff86327f6",
+        "type": "ui_text",
+        "z": "b6720ac1884745ba",
+        "group": "72c68556b47d4bca",
+        "order": 2,
+        "width": 0,
+        "height": 0,
+        "name": "",
+        "label": "東経",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "className": "",
+        "x": 510,
+        "y": 1440,
+        "wires": []
+    },
+    {
+        "id": "d92795f04e3f55c9",
+        "type": "ui_text",
+        "z": "b6720ac1884745ba",
+        "group": "72c68556b47d4bca",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "name": "",
+        "label": "北緯",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "className": "",
+        "x": 510,
+        "y": 1480,
+        "wires": []
+    },
+    {
+        "id": "aed2f6946098dcd3",
+        "type": "ui_gauge",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "group": "48d6ca06f8bc4c6d",
+        "order": 1,
+        "width": "6",
+        "height": "6",
+        "gtype": "wave",
+        "title": "SpO2",
+        "label": "%",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "100",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "100",
+        "seg2": "200",
+        "diff": false,
+        "className": "",
+        "x": 210,
+        "y": 1400,
+        "wires": []
+    },
+    {
+        "id": "9c33260d09276614",
+        "type": "ui_gauge",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "group": "dc3d060716113d9c",
+        "order": 1,
+        "width": "6",
+        "height": "6",
+        "gtype": "gage",
+        "title": "加速度",
+        "label": "m/s^2",
+        "format": "{{value}}",
+        "min": "-100",
+        "max": "100",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "200",
+        "seg2": "400",
+        "diff": false,
+        "className": "",
+        "x": 330,
+        "y": 1400,
+        "wires": []
+    },
+    {
+        "id": "d9f002278481a023",
+        "type": "ui_gauge",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "group": "7ac7eada7585d26c",
+        "order": 0,
+        "width": "6",
+        "height": "6",
+        "gtype": "wave",
+        "title": "湿度",
+        "label": "%",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "100",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "100",
+        "seg2": "200",
+        "diff": false,
+        "className": "",
+        "x": 90,
+        "y": 1440,
+        "wires": []
+    },
+    {
+        "id": "523440a95bb308c4",
+        "type": "ui_gauge",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "group": "7ac7eada7585d26c",
+        "order": 1,
+        "width": "6",
+        "height": "6",
+        "gtype": "wave",
+        "title": "温度",
+        "label": "℃",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "100",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "100",
+        "seg2": "200",
+        "diff": false,
+        "className": "",
+        "x": 90,
+        "y": 1400,
+        "wires": []
+    },
+    {
+        "id": "c134d8506fb2fd28",
+        "type": "ui_chart",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "group": "d422b18869675188",
+        "order": 1,
+        "width": "6",
+        "height": "6",
+        "label": "脈波",
+        "chartType": "line",
+        "legend": "false",
+        "xformat": "HH:mm",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "0",
+        "ymax": "100",
+        "removeOlder": "30",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "1",
+        "cutout": 0,
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 210,
+        "y": 1440,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "13931ac683c909d2",
+        "type": "ui_chart",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "group": "453bf79555276bf5",
+        "order": 1,
+        "width": "6",
+        "height": "6",
+        "label": "心電位推移(mV)",
+        "chartType": "line",
+        "legend": "false",
+        "xformat": "HH:mm",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "-100",
+        "ymax": "100",
+        "removeOlder": "30",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "1",
+        "cutout": 0,
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 360,
+        "y": 1440,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "1f0218aa629bb96d",
+        "type": "ui_chart",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "group": "74ae7cc420037d76",
+        "order": 1,
+        "width": "6",
+        "height": "6",
+        "label": "加速度推移(m/s^2)",
+        "chartType": "line",
+        "legend": "false",
+        "xformat": "HH:mm",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "-100",
+        "ymax": "100",
+        "removeOlder": "30",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "1",
+        "cutout": 0,
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 490,
+        "y": 1400,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "88beb6d834c5cb0d",
+        "type": "debug",
+        "z": "b6720ac1884745ba",
+        "name": "debug 10",
+        "active": false,
+        "tosidebar": true,
+        "console": true,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 750,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "9ea1a8f1f319a729",
+        "type": "template",
+        "z": "b6720ac1884745ba",
+        "name": "GNSS",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n    \"latitude\": {{{payload.lat}}},\n    \"longitude\": {{{payload.lng}}},\n    \"altitude\": {{{payload.alt}}},\n    \"geoid\": {{{payload.geoid}}},\n    \"HDOP\": {{{payload.HDOP}}}\n}",
+        "output": "json",
+        "x": 590,
+        "y": 320,
+        "wires": [
+            [
+                "02ef87676746077c"
+            ]
+        ]
+    },
+    {
+        "id": "ae80c93a2f48854c",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "GNSS_proc_prototype",
+        "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nlet datetime = msg.receiveDate\nlet currentDate = msg.currentDate\n\nif (tlen == 0) {\n    return null;\n}\n\n/*\nデータの形式\ninputData:{\n    latDegree: data[0],\n    latMinute: data[1] + data[2] + data[3] + data[4],\n    latId: data[5],\n    lngDegree: data[6],\n    lngMinute: data[7] + data[8] + data[9] + data[10],\n    lngId: data[11],\n    quality: data[12],\n    numSV: data[13],\n    HDOP: data[14],\n    alt: data[15] + data[16] + data[17] + data[18],\n    geoid: data[19] + data[20] + data[21] + data[22],\n    diffAge: data[23], \n    stationId: data[24]\n}\n*/\n\nlet latDegree = parseInt(String(input[0]), 16)\nlet latMinute = parseInt(String(input[1]) + String(input[2]) + String(input[3]) + String(input[4]), 16)\nlatMinute = latMinute / (10 ** latMinute.toString().length)\nlet latId = !input[5] ? 1 : -1\nlet lat = latId * (latDegree + latMinute)\n\nlet lngDegree = parseInt(String(input[6]), 16)\nlet lngMinute = parseInt(String(input[7]) + String(input[8]) + String(input[9]) + String(input[10]), 16)\nlngMinute = lngMinute / (10 ** lngMinute.toString().length)\nlet lngId = !input[11] ? 1 : -1\nlet lng = lngId * (lngDegree + lngMinute)\n\nlet quality = input[12]\nlet numSV = input[13]\n\nlet HDOP = input[14]\n\nlet alt = input[15] + input[16] + input[17] + input[18]\nlet geoid = input[19] + input[20] + input[21] + input[22]\n\nlet diffAge = input[23]\nlet stationId = input[24]\n\nmsg ={\n    payload: {\n        lat: lat,\n        lng: lng,\n        alt: alt,\n        geoid: geoid,\n        quality: quality,\n        numSV: numSV,\n        HDOP: HDOP,\n        diffAge: diffAge,\n        stationId: stationId\n    },\n    Ndata: msg.Ndata,\n    timestamp: currentDate\n}\n\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 820,
+        "y": 1380,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "89d9fbb343c8328f",
+        "type": "template",
+        "z": "b6720ac1884745ba",
+        "name": "SpO2",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n    \"SpO2\": {{payload}}\n}",
+        "output": "json",
+        "x": 1030,
+        "y": 1260,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "2a5ed04a23ad4a9b",
+        "type": "comment",
+        "z": "b6720ac1884745ba",
+        "name": "fields設定",
+        "info": "templateノードを使用して\n以下の構造のpayloadを作成する\n\n```\n{\n    \"field1名\": {{payload.field1のvalue}}\n    \"field2名\": {{payload.field2のvalue}}\n    ...\n\n}\n```\n\n構文や形式はmustacheを指定し、\n出力形式はJSONを指定すること",
+        "x": 600,
+        "y": 180,
+        "wires": []
+    },
+    {
+        "id": "8f6371dea822e8c4",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "prepare_sendData_for_influxdb_old",
+        "func": "// console.log(\"[\" + new Date().getTime() + \"]\" + \"start preparing process...\")\n\nmsg.ResultTime = new Date()\n\n// ========== measurement用データ ==========\nlet measurement = msg.measurement\n\n// ========== tag用データ ==========\nconst node_id = msg.Ndata.NodeId\nconst sensor_type = msg.Ndata.SensorType\n// const time = msg.Ndata.TimeStamp\n// const receiveTime = msg.Ndata.receiveDate\n\nconst tag = msg.tag;\n\nlet tagData = {\n    \"NodeId\": String(node_id),\n    \"SensorType\": String(sensor_type),\n}\n\nif(tag){\n    Object.assign(tagData, tag)\n}\n\n// ========== field用データ ==========\nlet fields = msg.payload\n\n// ========== timestamp用データ ==========\nlet timestamp = msg.timestamp\n\n// ========== DB書き込みデータ作成 ==========\nmsg.payload = {\n    // You bucket\n    // Optional (it can be defined in the node credentials settings)\n    bucket: 'node-data',\n\n    // Precision of timestamp\n    // Optional\n    // Can be `ns` (nanoseconds),\n    //        `us` (microseconds),\n    //        `ms` (milliseconds),\n    //        `s` (seconds).\n    // The default is `ns`\n    // Note: if you set the `timestamp` field to `Date.now()`, you have to set the `precision` to `ms`\n    precision: 'ms',\n\n    // Data to send to InfluxDB\n    // Can be an array of objects or only one object\n    data: [\n        {\n            measurement: measurement,\n            tags: tagData,\n            fields: fields,\n            timestamp: timestamp.getTime()\n        },\n\n        // More data can be send here, simply re add an object\n        // { ... },\n    ]\n};\n\n// console.log(\"==========================\")\n// console.log(\"data: \" + tagData.SensorType)\n// console.log(\"resultTime: \" + now.getTime())\n// console.log(\"receiveTime: \" + receiveTime.getTime())\n// console.log(\"result: \" + now.getTime() + \" receive: \" + receiveTime.getTime() + \" timestamp: \" + timestamp.getTime() + \" Type: \" + measurement + \" Len: \" + msg.Ndata.Len)\n// console.log(\"passTime: \" + (now.getTime() - receiveTime.getTime()))\n// console.log(\"diffTime: \" + (receiveTime.getTime() - timestamp.getTime()))\n// console.log(\"send:\" + measurement + \" is complete\")\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1160,
+        "y": 1520,
+        "wires": [
+            [
+                "a68ee2194bcc26d7"
+            ]
+        ]
+    },
+    {
+        "id": "a68ee2194bcc26d7",
+        "type": "change",
+        "z": "b6720ac1884745ba",
+        "name": "不要データ削除",
+        "rules": [
+            {
+                "t": "delete",
+                "p": "timestamp",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "Ndata",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "measurement",
+                "pt": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1280,
+        "y": 1560,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "bf88faaddfc768bc",
+        "type": "subflow:007a7381dc88608d",
+        "z": "b6720ac1884745ba",
+        "d": true,
+        "name": "",
+        "x": 790,
+        "y": 1420,
+        "wires": [
+            [],
+            [],
+            []
+        ],
+        "info": "Temperature, Humidity, Pressureを\r\nNode-RED側で計算させるためのサブフロー\r\n"
+    },
+    {
+        "id": "ed85c17c91f1fad0",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "read_ReData",
+        "func": "var string = msg.payload;\nvar fit = \"ReData\";\n\n/** context名を管理するオブジェクト */\nconst contextName = {\n    startDate: \"startDate_\" + msg.port,\n    startTime: \"startTime_\" + msg.port,\n    preTime: \"preTime_\" + msg.port,\n}\n\nmsg.payload = null;\n\n/** 指定した時刻とタイムスタンプ値を紐づけてcontextに保存する関数 */\nconst setStartDate = (now, timestamp) =>{\n    flow.set(contextName.startDate, now.getTime())\n    flow.set(contextName.startTime, timestamp)\n    node.log(\"startDate set is complete. startDate: \" + now.getTime())\n} \n\n/** タイムスタンプから時刻を算出する関数 */\nconst getCurrentDate = (timeStamp) => {\n    const startDate = flow.get(contextName.startDate)\n    const startTime = flow.get(contextName.startTime)\n    let diffTime = timeStamp - startTime\n    let currentDate = new Date(startDate + diffTime)\n    return currentDate\n}\n\nif (~string.indexOf(fit)) {                      // \"ReData\"一致時の処理\n    var result = string.split('ReData:');        //Redata:で分割\n    var answer = result[1];\n    if (answer == null) { return null; }\n\n    var result = answer.split('<<');        //Redata:で分割\n    if (result.length == null) { return null; }\n\n    var answer = result[0].split(' ');                //' 'で分割\n\n    let timestamp = parseInt(answer[4] + answer[5] + answer[6] + answer[7],16)\n    \n    /* ==== 取得時刻とタイムスタンプを同期させる処理 ==== */\n    \n    const now = new Date()\n\n    // contextデータの取得\n    let startDate = flow.get(contextName.startDate)\n    let startTime = flow.get(contextName.startTime)\n    let preTime = flow.get(contextName.preTime)\n\n    // context未設定時にリセット\n    if ((!startDate) || (!startTime)) {\n        setStartDate(now, timestamp);\n    }\n    // 前回のタイムスタンプより値が小さい場合にリセット\n    if (timestamp < preTime) {\n        setStartDate(now, timestamp);\n    }\n    \n    // タイムスタンプからHubの時刻を算出する\n    let hubDate = getCurrentDate(timestamp)\n    \n    // contextに今回のタイムスタンプを保存する\n    flow.set(contextName.preTime,timestamp)\n    \n    /* ============================================== */\n\n    let NodeId = parseInt(answer[0], 16)\n    let SensorType = parseInt(answer[1], 16)\n    let seqNum = parseInt((answer[2]+answer[3]), 16)\n    let len = parseInt(answer[8], 16)\n    \n    let dataArr = answer.slice(9)\n\n    //json構造体の設定\n    msg.Ndata = {\n        NodeId: NodeId,\n        SensorType: SensorType,\n        SequenceNum: seqNum,\n        TimeStamp: timestamp,\n        Len: len,\n    }\n    msg.payload = dataArr\n    msg.hubDate = hubDate\n    msg.receiveDate = now\n\n    // msg.payload = [\n    //     answer[9], answer[10], answer[11], answer[12], answer[13], answer[14], answer[15], answer[16], answer[17],\n    //     answer[18], answer[19], answer[20], answer[21], answer[22], answer[23], answer[24], answer[25], answer[26], answer[27],\n    //     answer[28], answer[29], answer[30], answer[31], answer[32], answer[33], answer[34], answer[35], answer[36], answer[37],\n    //     answer[38], answer[39], answer[40], answer[41], answer[42], answer[43], answer[44], answer[45], answer[46], answer[47],\n    //     answer[48], answer[49], answer[50], answer[51], answer[52], answer[53], answer[54], answer[55], answer[56], answer[57],\n    //     answer[58], answer[59], answer[60], answer[61], answer[62], answer[63], answer[64], answer[65], answer[66], answer[67],\n    //     answer[68], answer[69], answer[70], answer[71], answer[72], answer[73], answer[74], answer[75], answer[76], answer[77],\n    //     answer[78], answer[79], answer[80], answer[81], answer[82], answer[83], answer[84], answer[85], answer[86], answer[87],\n    //     answer[88], answer[89], answer[90], answer[91], answer[92], answer[93], answer[94], answer[95], answer[96], answer[97],\n    //     answer[98], answer[99], answer[100], answer[101], answer[102], answer[103], answer[104], answer[105], answer[106], answer[107]\n    // ]\n\n    return msg;\n\n} else {\n\n    return null;\n}",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 110,
+        "y": 160,
+        "wires": [
+            [
+                "f4cbe595c21cf54d",
+                "0d42ee5a3ab4da0f",
+                "b7c0d2ec0e10fc55"
+            ]
+        ]
+    },
+    {
+        "id": "f4cbe595c21cf54d",
+        "type": "debug",
+        "z": "b6720ac1884745ba",
+        "name": "debug 11",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 400,
+        "y": 160,
+        "wires": []
+    },
+    {
+        "id": "96aaedadd0c1e58f",
+        "type": "Stackhero-InfluxDB-v2-write",
+        "z": "b6720ac1884745ba",
+        "server": "dd73c994dc8654d2",
+        "name": "Storage",
+        "x": 1000,
+        "y": 400,
+        "wires": [
+            [
+                "e0db3532cf1450af"
+            ]
+        ]
+    },
+    {
+        "id": "5ed2c544f2001469",
+        "type": "change",
+        "z": "b6720ac1884745ba",
+        "name": "PPG",
+        "rules": [
+            {
+                "t": "set",
+                "p": "measurement",
+                "pt": "msg",
+                "to": "PPG",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 750,
+        "y": 360,
+        "wires": [
+            [
+                "8c5af822a97c77b3"
+            ]
+        ]
+    },
+    {
+        "id": "c0ec978783b05759",
+        "type": "change",
+        "z": "b6720ac1884745ba",
+        "name": "ENV",
+        "rules": [
+            {
+                "t": "set",
+                "p": "measurement",
+                "pt": "msg",
+                "to": "ENV",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 750,
+        "y": 220,
+        "wires": [
+            [
+                "8c5af822a97c77b3"
+            ]
+        ]
+    },
+    {
+        "id": "2160dff1c1eda571",
+        "type": "comment",
+        "z": "b6720ac1884745ba",
+        "name": "measurement設定",
+        "info": "changeノードを使用して\nmeasurementプロパティを追加する\n\n値の代入: msg.measurement\n対象の値: [センサ名]\n",
+        "x": 770,
+        "y": 180,
+        "wires": []
+    },
+    {
+        "id": "02ef87676746077c",
+        "type": "change",
+        "z": "b6720ac1884745ba",
+        "name": "GNSS",
+        "rules": [
+            {
+                "t": "set",
+                "p": "measurement",
+                "pt": "msg",
+                "to": "GNSS",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 750,
+        "y": 320,
+        "wires": [
+            [
+                "8c5af822a97c77b3"
+            ]
+        ]
+    },
+    {
+        "id": "4452f71436582777",
+        "type": "change",
+        "z": "b6720ac1884745ba",
+        "name": "IMU",
+        "rules": [
+            {
+                "t": "set",
+                "p": "measurement",
+                "pt": "msg",
+                "to": "IMU",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 750,
+        "y": 280,
+        "wires": [
+            [
+                "8c5af822a97c77b3"
+            ]
+        ]
+    },
+    {
+        "id": "08ae408d707110ed",
+        "type": "change",
+        "z": "b6720ac1884745ba",
+        "name": "ECG",
+        "rules": [
+            {
+                "t": "set",
+                "p": "measurement",
+                "pt": "msg",
+                "to": "ECG",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 750,
+        "y": 460,
+        "wires": [
+            [
+                "8c5af822a97c77b3"
+            ]
+        ]
+    },
+    {
+        "id": "119b04505ca29d99",
+        "type": "template",
+        "z": "b6720ac1884745ba",
+        "name": "ACC",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n    \"gyro_x\": {{payload.gyro_x}},\n    \"gyro_y\": {{payload.gyro_y}},\n    \"gyro_z\": {{payload.gyro_z}},\n    \"acc_x\" : {{payload.acc_x}},\n    \"acc_y\" : {{payload.acc_y}},\n    \"acc_z\" : {{payload.acc_z}}\n}\n",
+        "output": "json",
+        "x": 590,
+        "y": 260,
+        "wires": [
+            [
+                "4452f71436582777"
+            ]
+        ]
+    },
+    {
+        "id": "caf62c12fa399399",
+        "type": "comment",
+        "z": "b6720ac1884745ba",
+        "name": "DB書き込み用のデータ作成",
+        "info": "入力: \n```\nmsg: {\n    measurement: String,\n    Ndata: {\n        NodeName, String,\n        SensorType: String,\n    },\n    payload: JSON object,\n    timestamp: Date,\n}\n```\n\n出力:\n```\nmsg.payload: {\n    bucket: String,  // \"node-data\"\n    precision: String, // \"ms\"\n    data: [\n        {\n        measurement: String,\n        tags: {\n                \"NodeId\": String,\n                \"SensorType\": String,\n            },\n            fields: JSON object,\n            timestamp: number\n        }\n    ]\n}\n```",
+        "x": 1120,
+        "y": 1460,
+        "wires": []
+    },
+    {
+        "id": "3b4d8c579844d4e4",
+        "type": "serial in",
+        "z": "b6720ac1884745ba",
+        "d": true,
+        "name": "Hub:COM8",
+        "serial": "8ce6216da0f3cc43",
+        "x": 80,
+        "y": 120,
+        "wires": [
+            [
+                "ed85c17c91f1fad0"
+            ]
+        ]
+    },
+    {
+        "id": "82f1a0b3347608f9",
+        "type": "serial in",
+        "z": "b6720ac1884745ba",
+        "d": true,
+        "name": "Hub:COM5",
+        "serial": "9179fe2d9d8fc687",
+        "x": 80,
+        "y": 80,
+        "wires": [
+            [
+                "ed85c17c91f1fad0"
+            ]
+        ]
+    },
+    {
+        "id": "0597da9ede82ae8b",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "Imu_proc_old",
+        "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nlet currentDate = msg.currentDate\nconst samplingTime = 240\nconst BUFFER_SIZE = 16\n\nif (tlen == 0) {\n    return null;\n}\n\n// ========== タイムスタンプ算出用 =========================================\nlet contextName = {\n    startDate: \"startDate_\" + msg.port,\n    startTime: \"startTime_\" + msg.port,\n}\n\nconst startDate = flow.get(contextName.startDate)\nconst startTime = flow.get(contextName.startTime)\n\n// const getCurrentDate = (timeStamp) => {\n//     let startDate = flow.get(contextName.startDate)\n//     let startTime = flow.get(contextName.startTime)\n//     let diffTime = timeStamp - startTime\n//     let currentDate = new Date(startDate + diffTime)\n//     return currentDate\n// }\n// =======================================================================\n\n// console.log(\"[\"+ new Date().getTime() + \"]\" + \"start Imu process...\")\n\n// let datetime = msg.receiveDate\n\nlet buffer = []\n// lenのサイズに従ってBuffer配列を作成する\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    // buffer[cnt] = new Array(BUFFER_SIZE)\n    buffer[cnt] = new Array()\n    for (let i = 0; i < BUFFER_SIZE; i++) {\n        // buffer[cnt][i] = input[i + BUFFER_SIZE * cnt]\n        // buffer[cnt][i] = parseInt(buffer[cnt][i], 16)\n        buffer[cnt].push(input[i + BUFFER_SIZE * cnt])\n    }\n}\n\n// 配列をgx~gz, ax~az, timestampに分ける\nlet measurementTime\n// let firstImuTime\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    // let dataTime = new Date(datetime.getTime() - (samplingTime * (tlen - cnt - 1)))\n    // dataTime = dataTime.getTime();\n    let gyro_x = parseInt(buffer[cnt][0] + buffer[cnt][1],16)\n    if (gyro_x & 0x8000) gyro_x |= ~0xffff;\n    let gyro_y = parseInt(buffer[cnt][2] + buffer[cnt][3],16)\n    if (gyro_y & 0x8000) gyro_y |= ~0xffff;\n    let gyro_z = parseInt(buffer[cnt][4] + buffer[cnt][5],16)\n    if (gyro_z & 0x8000) gyro_z |= ~0xffff;\n    let acc_x = parseInt(buffer[cnt][6] + buffer[cnt][7],16)\n    if (acc_x & 0x8000) acc_x |= ~0xffff;\n    let acc_y = parseInt(buffer[cnt][8] + buffer[cnt][9],16)\n    if (acc_y & 0x8000) acc_y |= ~0xffff;\n    let acc_z = parseInt(buffer[cnt][10] + buffer[cnt][11],16)\n    if (acc_z & 0x8000) acc_z |= ~0xffff;\n    \n    let timeValue = parseInt(buffer[cnt][12] + buffer[cnt][13] + buffer[cnt][14] + buffer[cnt][15], 16)\n\n    // Lenが2以上の場合、タイムスタンプの処理が必要\n    // if (0){\n    //     if (cnt == 0) {\n    //         measurementTime = new Date(currentDate)\n    //         // firstImuTime = timeValue\n    //         console.log(\"currentDate: \" + currentDate)\n    //     } else {\n    //         // measurementTime = new Date(currentDate.getTime() + (timeValue - firstImuTime))\n    //     }\n    // }\n    \n    // サンプリング時間を固定して算出する場合\n    // measurementTime = new Date(currentDate - samplingTime * ((tlen - cnt ) - 1)) \n\n    // データ内のタイムスタンプで時刻を算出する場合\n    measurementTime = new Date(startDate + (timeValue - startTime))\n\n    // console.log(\"mTime: \" + measurementTime.getTime())\n\n    let imuMsg = {\n        Ndata: msg.Ndata,\n        payload:{\n            gyro_x: gyro_x,\n            gyro_y: gyro_y,\n            gyro_z: gyro_z,\n            acc_x: acc_x,\n            acc_y: acc_y,\n            acc_z: acc_z\n        },\n        timestamp: measurementTime,\n        samplingTime: samplingTime,\n    }\n    node.send([imuMsg]);\n    // console.log(\"[\" + new Date().getTime() + \"]\" + \"send message \" + (cnt + 1) + \"/\" + tlen)\n}\n\n\n// console.log(\"[\" + new Date().getTime() + \"]\" + \"send complete.\")\n\nreturn null;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1160,
+        "y": 1000,
+        "wires": [
+            [
+                "70dbf1e2c2c07969"
+            ]
+        ]
+    },
+    {
+        "id": "71aecfc44577360a",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "clear_startDate",
+        "func": "let contextName = {\n    startDate: \"startDate_\" + msg.port,\n    startTime: \"startTime_\" + msg.port,\n    preTime: \"preTime_\" + msg.port,\n    nodeStartDate: \"startDate_nodeId_\" + msg.Ndata.NodeId,\n    nodeStartTime: \"startTime_nodeId_\" + msg.Ndata.NodeId,\n}\n\nflow.set(contextName.startDate, undefined)\nflow.set(contextName.startTime, undefined)\nflow.set(contextName.preTime, undefined)\nflow.set(contextName.nodeStartDate, undefined)\nflow.set(contextName.nodeStartTime, undefined)\n\nnode.log(\"clear startDate: \"+ msg.port)\nreturn null;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 580,
+        "y": 60,
+        "wires": [
+            [
+                "88beb6d834c5cb0d"
+            ]
+        ]
+    },
+    {
+        "id": "a69426e7fd373f1a",
+        "type": "comment",
+        "z": "b6720ac1884745ba",
+        "name": "一定時間受信がない場合のタイムスタンプリセット処理",
+        "info": "※Hubが複数接続されていた場合に対応できないため、\n修正が必要",
+        "x": 560,
+        "y": 20,
+        "wires": []
+    },
+    {
+        "id": "fe8a86278f184804",
+        "type": "template",
+        "z": "b6720ac1884745ba",
+        "name": "ENV",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n    \"Temperature\": {{payload.temperature}},\n    \"Humidity\": {{payload.humidity}},\n    \"Pressure\": {{payload.pressure}}\n}",
+        "output": "json",
+        "x": 590,
+        "y": 220,
+        "wires": [
+            [
+                "c0ec978783b05759"
+            ]
+        ]
+    },
+    {
+        "id": "41ecf268f5a2dc90",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "Temp_proc",
+        "func": "let input = msg.payload;\nconst tlen = msg.Ndata.Len;\nconst hubDate = msg.hubDate\n// const samplingTime = 40\nconst BUFFER_SIZE = 11\n\n// ====== タイムスタンプ算出用 =======\nconst contextName = {\n    startDate: \"startDate_\" + msg.port,\n    startTime: \"startTime_\" + msg.port,\n    preTime: \"preTime_\" + msg.port,\n}\n\nconst getCurrentDate = (timeStamp) => {\n    const startDate = flow.get(contextName.startDate)\n    const startTime = flow.get(contextName.startTime)\n    let diffTime = timeStamp - startTime\n    let currentDate = new Date(startDate + diffTime)\n    return currentDate\n}\n\n// ===================================\n\nif (tlen == 0) {\n    return null;\n}\n\nlet buffer = []\n// lenのサイズに従ってBuffer配列を作成する\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    buffer[cnt] = new Array()\n    for (let i = 0; i < BUFFER_SIZE; i++) {\n        buffer[cnt].push(input[i + BUFFER_SIZE * cnt])\n    }\n}\n\nconst startDate = flow.get(contextName.startDate)\nconst startTime = flow.get(contextName.startTime)\n\nif ((!startDate) || (!startTime)) {\n    node.warn(\"cannot get context!\");\n    return null\n}\n\n// Buffer配列をTemp, press, hum, timestampに分ける\nlet measurementTime\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    let tempBuf = buffer[cnt][0] + buffer[cnt][1] + ((parseInt(buffer[cnt][2],16)&0xf0)>>4).toString(16)\n    let pressBuf = (parseInt(buffer[cnt][2],16)&0x0f).toString(16) + buffer[cnt][3] + buffer[cnt][4]\n    let humBuf = buffer[cnt][5] + buffer[cnt][6]\n    let timeBuf = buffer[cnt][7] + buffer[cnt][8] + buffer[cnt][9] + buffer[cnt][10]\n\n    let tempValue = parseInt(tempBuf,16) / 100\n    let pressValue = parseInt(pressBuf, 16) /100\n    let humValue = parseInt(humBuf, 16) / 1024\n    let timeValue = parseInt(timeBuf, 16)\n\n    measurementTime = getCurrentDate(timeValue)\n\n    msg = {\n        Ndata: msg.Ndata,\n        payload: {\n            temperature: tempValue,\n            humidity: humValue,\n            pressure: pressValue\n        },\n        timestamp: measurementTime\n    }\n    node.send(msg);\n}\n\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 410,
+        "y": 240,
+        "wires": [
+            [
+                "fe8a86278f184804"
+            ]
+        ]
+    },
+    {
+        "id": "b7c0d2ec0e10fc55",
+        "type": "trigger",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "op1": "",
+        "op2": "",
+        "op1type": "nul",
+        "op2type": "payl",
+        "duration": "5",
+        "extend": true,
+        "overrideDelay": false,
+        "units": "s",
+        "reset": "",
+        "bytopic": "all",
+        "topic": "topic",
+        "outputs": 1,
+        "x": 420,
+        "y": 60,
+        "wires": [
+            [
+                "71aecfc44577360a"
+            ]
+        ]
+    },
+    {
+        "id": "c93b8a69bede3598",
+        "type": "serial in",
+        "z": "b6720ac1884745ba",
+        "name": "Hub:COM3",
+        "serial": "9e8a3098403f7ebc",
+        "x": 80,
+        "y": 40,
+        "wires": [
+            [
+                "ed85c17c91f1fad0",
+                "a0b592cb8de3bbb5"
+            ]
+        ]
+    },
+    {
+        "id": "0a61cab49e6bbb5a",
+        "type": "template",
+        "z": "b6720ac1884745ba",
+        "name": "RED,IR",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n  \"Red_value\": {{payload.Red}},\n  \"Ir_value\": {{payload.Ir}}\n}",
+        "output": "json",
+        "x": 1040,
+        "y": 1300,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "b99ca6956d5abde6",
+        "type": "comment",
+        "z": "b6720ac1884745ba",
+        "name": "計算ノード",
+        "info": "functionノードやサブフローを用いて\n出力結果を得るフェーズ\n\n入出力は以下の形式に従うこと\n\n入力: {\n    msg.payload: String[], // 16進数表記のデータ配列\n    Len: msg.Ndata.Len, // 1回の送信に格納されているデータ数\n    currentDate: msg.currentDate // タイムスタンプに対応した時刻\n}\n\n出力:{\n    msg: {\n        payload: any, // 1つまたは複数のデータ, 複数の場合は識別できるようにデータ名を追加したDict型にする\n        Ndata: msg.Ndata, // ヘッダ情報\n        timestamp: Date, // currentDateを用いてセンサがデータ取得した時刻を算出する\n    }\n}\n",
+        "x": 400,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "e08abc4b1c7daf84",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "GNSS_proc_v01",
+        "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nlet datetime = msg.receiveDate\n// let currentDate = msg.currentDate\nlet hubDate = msg.hubDate\n\n// 入力に値がなければnull、値があればFloatにして返す関数\nconst formatData = (input) =>{\n    let res = !input ? null : parseFloat(input)\n    return res\n}\n\nif (tlen == 0) {\n    return null;\n}\n\nlet text = \"\"\nfor (let i=0, l=input.length;i<l;i++){\n    let str = String.fromCharCode(parseInt(input[i],16))\n    text += str\n}\n\nif(text === \"\") {return null}\n\nlet dataArr = text.split(\",\")\n\nlet utcPosFix = dataArr[1]\nlet latDegree = parseFloat(dataArr[2])\nlet latId \nif (dataArr[3] == \"S\"){\n    latId = -1\n}else{\n    latId = 1\n}\n\nlet lngDegree = parseFloat(dataArr[4])\nlet lngId\nif(dataArr[5] == \"W\"){\n    lngId = -1\n}else{\n    lngId = 1\n} \n\nlet quality = formatData(dataArr[6])\nlet numSV = formatData(dataArr[7])\nlet HDOP = formatData(dataArr[8])\nlet alt = formatData(dataArr[9])\nlet altUnit = dataArr[10]\nlet geoid = formatData(dataArr[11])\nlet geoidUnit = dataArr[12]\nlet diffAge = formatData(dataArr[13])\nlet stationId = dataArr[14].split(\"*\")[0]\n\nlet lat = isNaN(latDegree) ? null : latId * latDegree / 100 // ddmm.mmmmをdd.mmmmmmmに直すため\nlet lng = isNaN(lngDegree) ? null : latId * lngDegree / 100\n\nmsg = {\n    payload: {\n        lat: lat,\n        lng: lng,\n        alt: alt,\n        geoid: geoid,\n        quality: quality,\n        numSV: numSV,\n        HDOP: HDOP,\n        // diffAge: diffAge,\n        // stationId: stationId\n    },\n    Ndata: msg.Ndata,\n    // timestamp: currentDate\n    timestamp: hubDate\n}\n\n// payload内にnullがあるかどうかチェックする関数\nconst hasNull = (obj) =>{\n    for(let key in obj){\n        if(obj[key] === null){\n            return true\n        }\n    }\n    return false\n}\n\n// nullがない時だけ送信する\nif(!hasNull(msg.payload)){\n    return msg\n}else{\n    return null\n}\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1010,
+        "y": 1140,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "f2dd25301583278f",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "GNSS_debug",
+        "func": "// let input = msg.payload;\nlet input = [\"24\", \"47\", \"4e\", \"47\", \"47\", \"41\", \"2c\", \"30\", \"34\", \"32\", \"34\", \"33\", \"33\", \"2e\", \"30\", \"30\", \"2c\", \"33\", \"34\", \"32\", \"36\", \"2e\", \"34\", \"31\", \"36\", \"37\", \"36\", \"2c\", \"4e\", \"2c\", \"31\", \"33\", \"32\", \"32\", \"34\", \"2e\", \"39\", \"31\", \"32\", \"39\", \"33\", \"2c\", \"45\", \"2c\", \"31\", \"2c\", \"30\", \"34\", \"2c\", \"33\", \"2e\", \"34\", \"38\", \"2c\", \"31\", \"38\", \"38\", \"2e\", \"36\", \"2c\", \"4d\", \"2c\", \"33\", \"30\", \"2e\", \"31\", \"2c\", \"4d\", \"2c\", \"2c\", \"2a\", \"34\", \"39\", \"0d\", \"0a\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"\"]\n\nlet input2 = [\n    \"02\", \"03\", \"00\", \"27\", \"00\", \"00\", \"a1\", \"3f\", \"01\", \"24\", \"47\", \"4e\", \"47\", \"47\", \"41\", \"2c\", \"2c\", \"2c\", \"2c\", \"2c\", \"2c\", \"30\", \"2c\", \"30\", \"30\", \"2c\", \"39\", \"39\", \"2e\", \"39\", \"39\", \"2c\", \"2c\", \"2c\", \"2c\", \"2c\", \"2c\", \"2a\", \"35\", \"36\", \"0d\", \"0a\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"00\", \"\"\n]\n\n\nmsg.Ndata = {\n    NodeName: 3,\n    SensorType: 3,\n    SequenceNum: 1,\n    TimeStamp: 10578,\n    Len: 1,\n}\n\nlet tlen = msg.Ndata.Len;\n// let datetime = msg.receiveDate\nlet currentDate = new Date()\n\n// 入力に応じて空文字か数値を返す\nconst formatData = (input) => {\n    let res = !input ? null : parseFloat(input)\n    return res\n}\n\n// if (tlen == 0) {\n//     return null;\n// }\n\nlet text = \"\"\nfor (let i = 0, l = input.length; i < l; i++) {\n    let str = String.fromCharCode(parseInt(input[i], 16))\n    text += str\n}\n\nlet dataArr = text.split(\",\")\n\nlet utcPosFix = dataArr[1]\n// console.log(utcPosFix)\nlet latDegree = parseFloat(dataArr[2])\n\nlet latId\nif (dataArr[3] == \"S\") {\n    latId = -1\n} else {\n    latId = 1\n}\n\nlet lngDegree = parseFloat(dataArr[4])\n\nlet lngId\nif (dataArr[5] == \"W\") {\n    lngId = -1\n} else {\n    lngId = 1\n}\n\nlet quality = formatData(dataArr[6])\nlet numSV = formatData(dataArr[7])\nlet HDOP = formatData(dataArr[8])\nlet alt = formatData(dataArr[9])\nlet altUnit = dataArr[10]\nlet geoid = formatData(dataArr[11])\nlet geoidUnit = dataArr[12]\nlet diffAge = formatData(dataArr[13])\nlet stationId = dataArr[14].split(\"*\")[0]\n\nlet lat = isNaN(latDegree) ? null : latId * latDegree\nlet lng = isNaN(lngDegree) ? null : latId * lngDegree\n\nmsg = {\n    payload: {\n        lat: lat / 100,\n        lng: lng / 100,\n        alt: alt,\n        geoid: geoid,\n        quality: quality,\n        numSV: numSV,\n        HDOP: HDOP,\n        // diffAge: diffAge,\n        // stationId: stationId\n    },\n    Ndata: msg.Ndata,\n    timestamp: currentDate\n}\n\nconst hasNull = (obj) => {\n    for (let key in obj) {\n        if (obj[key] === null) {\n            return true;\n        }\n    }\n    return false;\n}\n// console.log(msg.payload)\n// if (!hasNull(msg.payload)) {\n//     return msg\n// }\n// else {\n//     // console.log(\"null exist\")\n//     return null\n// }\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 140,
+        "y": 780,
+        "wires": [
+            [
+                "02a330a46bb32c85",
+                "9ea1a8f1f319a729"
+            ]
+        ]
+    },
+    {
+        "id": "a718577fc3c14775",
+        "type": "inject",
+        "z": "b6720ac1884745ba",
+        "name": "GNSSテスト実行",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 120,
+        "y": 740,
+        "wires": [
+            [
+                "f2dd25301583278f"
+            ]
+        ]
+    },
+    {
+        "id": "6f713b97925e0ea4",
+        "type": "template",
+        "z": "b6720ac1884745ba",
+        "name": "ECG",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n    \"ecg\": {{payload.ecg}}\n}",
+        "output": "json",
+        "x": 590,
+        "y": 400,
+        "wires": [
+            [
+                "08ae408d707110ed"
+            ]
+        ]
+    },
+    {
+        "id": "105af2051055822f",
+        "type": "template",
+        "z": "b6720ac1884745ba",
+        "name": "HR, RRI",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n    \"HR\": {{payload.HR}} ,\n    \"RRI\": {{payload.RRI}} \n}",
+        "output": "json",
+        "x": 600,
+        "y": 440,
+        "wires": [
+            [
+                "08ae408d707110ed"
+            ]
+        ]
+    },
+    {
+        "id": "07c05c694cf427b3",
+        "type": "subflow:866808d7a9f51b30",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "x": 400,
+        "y": 440,
+        "wires": [
+            [
+                "6f713b97925e0ea4"
+            ],
+            [
+                "105af2051055822f"
+            ],
+            [
+                "a7222af7905c42d7"
+            ],
+            [
+                "af0a37733e0c6c65"
+            ]
+        ]
+    },
+    {
+        "id": "ef1253d220e6ab36",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "ecg_test_emitter",
+        "func": "const contextName ={\n    count: \"TestEcgCount\"\n}\n\nconst ecgData = [\n    0.980858445, 0.359048724, 0.060324825, 0.009280742, \n    0.092807427, 0.185614854, 0.201276109, 0.220417634, \n    0.220997676, 0.217517406, 0.225638047, 0.225638047, \n    0.231438518, 0.230278417, 0.22737819, 0.236078888,\n    0.236078888, 0.232598603, 0.239559159, 0.255220413, \n    0.27262181, 0.287703007, 0.298143864, 0.320185602, \n    0.339327157, 0.357888639, 0.372969836, 0.378190249, \n    0.393851519, 0.386310905, 0.384570777, 0.38515082, \n    0.36716938, 0.350928068, 0.332366586, 0.308004647, \n    0.289443165, 0.272041768, 0.255220413, 0.247099772, \n    0.239559159, 0.243619487, 0.235498846, 0.232598603,\n    0.231438518, 0.236078888, 0.236658931, 0.23317866, \n    0.236658931, 0.241299301, 0.240719259, 0.247099772, \n    0.247099772, 0.252900243, 0.243039444, 0.248259857,\n    0.259860784, 0.256380498, 0.25, 0.243619487, \n    0.247679815, 0.249419957, 0.327726215, 0.313225061, \n    0.317865431, 0.328306258, 0.369489551, 0.395011604, \n    0.408352673, 0.343387485, 0.332366586, 0.279002309, \n    0.248259857, 0.224477962, 0.211716935, 0.203016236, \n    0.204756379, 0.198375866, 0.193735495, 0.195475638, \n    0.190835267, 0.203016236, 0.198375866, 0.275522053, \n    0.396171689, 0.495359629, 0.759860814\n]\n\nlet time = new Date(msg.payload)\n\nlet Ndata = {\n    NodeId: 2,\n    SensorType: 5,\n    SequenceNum: 1,\n    TimeStamp: 1000,\n    Len: 1,\n}\n\nlet count = context.get(contextName.count)\nif (!count){\n    count = 0;\n    context.set(contextName.count, 0);\n}\n\n// msg.payload = ecgData[count%87]\n\nmsg = {\n    payload: {\n        ecg: ecgData[count%ecgData.length],\n        timestamp: time,\n        Ndata: Ndata\n    },\n    Ndata: Ndata,\n    timestamp: time\n}\n\ncontext.set(contextName.count,count+1)\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 150,
+        "y": 1020,
+        "wires": [
+            [
+                "dcbb8d6702027b56",
+                "6f713b97925e0ea4"
+            ]
+        ]
+    },
+    {
+        "id": "06d5dd17d5feb18c",
+        "type": "trigger",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "op1": "",
+        "op2": "0",
+        "op1type": "date",
+        "op2type": "str",
+        "duration": "-8",
+        "extend": false,
+        "overrideDelay": false,
+        "units": "ms",
+        "reset": "false",
+        "bytopic": "all",
+        "topic": "topic",
+        "outputs": 1,
+        "x": 150,
+        "y": 960,
+        "wires": [
+            [
+                "ef1253d220e6ab36"
+            ]
+        ]
+    },
+    {
+        "id": "a5060b7031af141f",
+        "type": "inject",
+        "z": "b6720ac1884745ba",
+        "name": "ECGテスト実行",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 120,
+        "y": 880,
+        "wires": [
+            [
+                "06d5dd17d5feb18c"
+            ]
+        ]
+    },
+    {
+        "id": "ba374efbc087b41b",
+        "type": "inject",
+        "z": "b6720ac1884745ba",
+        "name": "停止",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "false",
+        "payloadType": "bool",
+        "x": 90,
+        "y": 920,
+        "wires": [
+            [
+                "06d5dd17d5feb18c"
+            ]
+        ]
+    },
+    {
+        "id": "063b42f07ee4fd94",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "peak_detection",
+        "func": "/**\n *  直前のデータが単調増加していた場合(isIncr=True)かつ\n *  今回のデータが単調減少していた場合、直前のデータがピーク値となる\n *  直前のデータの増減、値、時刻を監視し、ピーク値を検出した場合に、\n *  そのピーク値の情報を次のノードに送信する\n *  \n * \n */\n\nlet input = msg.payload.ecg\nlet time = msg.timestamp\nlet Ndata = msg.Ndata\n\nconst setContext = (data, time, Ndata, isIncr) => {\n    context.set(\"preData\", data)\n    context.set(\"preTime\", time)\n    context.set(\"isIncr\", isIncr)\n    context.set(\"Ndata\", Ndata)\n}\n\nlet isIncr = context.get(\"isIncr\");\nlet preData = context.get(\"preData\");\nlet preTime = context.get(\"preTime\")\n\nif(preData == undefined || preTime === undefined || isIncr === undefined){\n    setContext(input, time, Ndata, isIncr=false)\n    return null\n}\n\n// 直前が単調増加の場合\nif(isIncr){\n    // 今回単調増加の場合\n    if (input >= preData) {\n        setContext(input, time, Ndata, isIncr = true)\n        return null\n    }\n    // 今回単調減少の場合\n    else if (input < preData){\n        msg = {\n            payload: preData,\n            timestamp: preTime,\n            Ndata: Ndata\n        }\n        setContext(input, time, Ndata, isIncr=false)\n        return msg\n    }\n} \n// 直前が単調減少の場合\nelse {\n    // 今回単調増加の場合\n    if (input >= preData) {\n        setContext(input, time, Ndata, isIncr = true)\n        return null\n    } \n    // 今回単調減少の場合\n    else if (input < preData) {\n        setContext(input, time, Ndata, isIncr = false)\n        return null\n    }\n}\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 800,
+        "y": 1460,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "c5e82caa96fc2966",
+        "type": "switch",
+        "z": "b6720ac1884745ba",
+        "name": "Threshold",
+        "property": "payload",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "gte",
+                "v": "0.75",
+                "vt": "str"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 1,
+        "x": 160,
+        "y": 1140,
+        "wires": [
+            [
+                "e540a8ad946fa1c6",
+                "7f0379b25e919954"
+            ]
+        ]
+    },
+    {
+        "id": "7f0379b25e919954",
+        "type": "template",
+        "z": "b6720ac1884745ba",
+        "name": "R_wave",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n    \"R_wave\": {{payload}} \n}",
+        "output": "json",
+        "x": 440,
+        "y": 1040,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "dcbb8d6702027b56",
+        "type": "batch",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "mode": "count",
+        "count": "20",
+        "overlap": "2",
+        "interval": "2",
+        "allowEmptySequence": false,
+        "topics": [],
+        "x": 110,
+        "y": 1060,
+        "wires": [
+            [
+                "5aebac56b20cced2"
+            ]
+        ]
+    },
+    {
+        "id": "5aebac56b20cced2",
+        "type": "join",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "mode": "auto",
+        "build": "object",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": false,
+        "timeout": "",
+        "count": "",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "num",
+        "reduceFixup": "",
+        "x": 230,
+        "y": 1060,
+        "wires": [
+            [
+                "a0194c66f78d9a6a"
+            ]
+        ]
+    },
+    {
+        "id": "a0194c66f78d9a6a",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "batch_peak_detection",
+        "func": "let dataArr = msg.payload\n\n// node.log(\"data: \" + JSON.stringify(dataArr))\n\n// 前後比較するインデックスの配列を作成する(1から開始、後ろから2番目まで)\nlet baseId = Array.from({length: (dataArr.length-2)},(_, i)=> i+1)\nlet peakLoc = baseId.filter((index) =>{\n    return dataArr[index].ecg > dataArr[index - 1].ecg && dataArr[index].ecg > dataArr[index + 1].ecg\n})\nif(peakLoc){\n    peakLoc.map(index=>{\n        msg = {\n            payload: dataArr[index].ecg,\n            timestamp: dataArr[index].timestamp,\n            Ndata: dataArr[index].Ndata\n        }\n        node.send(msg)\n    })\n    node.done()\n}else{\n    return null\n}\n// let peakData = peakLoc.map(index=> dataArr[index])\n\n// for (let i=0, length = peakData.length; i<length;i++){\n//     msg = {\n//         payload: peakData[i].ecg,\n//         timestamp: peakData[i].timestamp,\n//         Ndata: peakData[i].Ndata\n//     }\n//     node.send(msg);\n// }\n\nreturn null;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 180,
+        "y": 1100,
+        "wires": [
+            [
+                "c5e82caa96fc2966"
+            ]
+        ]
+    },
+    {
+        "id": "e540a8ad946fa1c6",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "calc_HeartRate",
+        "func": "let currentDate = msg.timestamp\n\nlet preDate = context.get(\"preDate\")\n\nif(!preDate){\n    context.set(\"preDate\",currentDate)\n    return null\n}\n\nlet RRI = currentDate.getTime() - preDate.getTime()\n\nlet BPM = 1000*60 / RRI\nBPM = Math.trunc(BPM)\n// node.log(\"RRI= \" + RRI + \" ms\")\n// node.log(\"BPM= \" + BPM)\n\nmsg.payload = {\n    HR: BPM,\n    RRI: RRI,\n}\ncontext.set(\"preDate\", currentDate)\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 200,
+        "y": 1180,
+        "wires": [
+            [
+                "105af2051055822f",
+                "e2ded76d34733038"
+            ]
+        ]
+    },
+    {
+        "id": "af3c1648ffcc024c",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "prepareSendData_for_influxdb",
+        "func": "// msg.ResultTime = new Date()\n\n// const dataArr = msg.payload\n\n// ========== payload作成 ==========\nmsg.payload = {\n    // You bucket\n    // Optional (it can be defined in the node credentials settings)\n    bucket: 'node-data',\n\n    // Precision of timestamp\n    // Optional\n    // Can be `ns` (nanoseconds),\n    //        `us` (microseconds),\n    //        `ms` (milliseconds),\n    //        `s` (seconds).\n    // The default is `ns`\n    // Note: if you set the `timestamp` field to `Date.now()`, you have to set the `precision` to `ms`\n    precision: 'ms',\n\n    // Data to send to InfluxDB\n    // Can be an array of objects or only one object\n    data: msg.payload\n};\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1050,
+        "y": 340,
+        "wires": [
+            [
+                "96aaedadd0c1e58f"
+            ]
+        ]
+    },
+    {
+        "id": "4b47cbc8ddc63c8d",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "FFT_filter",
+        "func": "// ================ define function ================\nconst expi = (theta) =>{\n    return [Math.cos(theta), Math.sin(theta)]\n}\nconst iadd = ([ax, ay],[bx, by])=>{\n    return [ax + bx, ay + by]\n}\nconst isub = ([ax, ay], [bx, by]) =>{\n    return [ax - bx, ay - by]\n}\nconst imul = ([ax,ay],[bx,by]) =>{\n    return [ax*bx - ay*by, ax*by + ay*bx]\n}\nconst isum = (cs) =>{\n    return cs.reduce((s,c) => iadd(s,c), [0,0])\n}\n\n/* calc fft by recursive function*/\nconst fftrec = (c, T, N, s=0, w=1) =>{\n    if(N === 1) return [c[s]];\n    const Nh = N/2, Td = T*2, wd = w*2;\n    const rec = fftrec(c, Td, Nh, s, wd).concat(fftrec(c, Td, Nh, s+w, wd));\n    for(let i=0; i<Nh; i++){\n        const l = rec[i], re= imul(rec[i+Nh],expi(T*i));\n        [rec[i], rec[i+Nh]] = [iadd(l, re), isub(l, re)];\n    }\n    return rec\n}\n\nconst fft0 = (f) =>{\n    const N = f.length, T = -2 * Math.PI / N;\n    return fftrec(f,T,N)\n}\n\nconst ifft0 = (F) =>{\n    const N = F.length, T = 2 * Math.PI / N;\n    return fftrec(F, T, N).map(([r, i])=> [r/N, i/N])\n}\n\nconst calcPowerSpectrum = (f, resolution) =>{\n    return f.map((r, index) => [(resolution * index).toPrecision(6),Math.sqrt(r[0]**2 + r[1]**2)])\n}\n\n// ================================================\n\n/**\n *  横軸分解能\n *  ΔHz = 1/(2^N * Δt) \n *  \n */\n\nlet input = msg.payload\nlet timestamp = msg.timestamp\nlet samplingTime = msg.samplingTime\n\nconst f_resolution = 1 / (input.length * samplingTime/1000)\n// const f_resolution = 1 / (input.length * 0.2)\n\nlet accXArr=[], accYArr=[], accZArr=[];\ninput.map((r)=> {\n    accXArr.push([r[\"acc_x\"], 0]);\n    accYArr.push([r[\"acc_y\"], 0]);\n    accZArr.push([r[\"acc_z\"], 0]);\n});\n\nconst F_accX = fft0(accXArr)\nconst F_accY = fft0(accYArr)\nconst F_accZ = fft0(accZArr)\n\nconst acc_x_PS = calcPowerSpectrum(F_accX, f_resolution)\nconst acc_y_PS = calcPowerSpectrum(F_accY, f_resolution)\nconst acc_z_PS = calcPowerSpectrum(F_accZ, f_resolution)\n\nlet acc_x_PS_obj = {}\nlet acc_y_PS_obj = {}\nlet acc_z_PS_obj = {}\n\nacc_x_PS.map((r)=> acc_x_PS_obj[r[0]] = r[1])\nacc_y_PS.map((r) => acc_y_PS_obj[r[0]] = r[1])\nacc_z_PS.map((r) => acc_z_PS_obj[r[0]] = r[1])\n\nlet acc_x_PSD = {}\nlet acc_y_PSD = {}\nlet acc_z_PSD = {}\n\nconst offset = 1e-10\n\nacc_x_PS.map((r) => acc_x_PSD[r[0]] = 10 * Math.log10(r[1] / f_resolution + offset))\nacc_y_PS.map((r) => acc_y_PSD[r[0]] = 10 * Math.log10(r[1] / f_resolution + offset))\nacc_z_PS.map((r) => acc_z_PSD[r[0]] = 10 * Math.log10(r[1] / f_resolution + offset))\n\nmsg = {\n    payload:{\n        acc_x_PS: acc_x_PS_obj,\n        acc_y_PS: acc_y_PS_obj,\n        acc_z_PS: acc_z_PS_obj,\n        acc_x_PSD: acc_x_PSD,\n        acc_y_PSD: acc_y_PSD,\n        acc_z_PSD: acc_z_PSD,\n        F_x: F_accX,\n        F_y: F_accY,\n        F_z: F_accZ\n    },\n    timestamp: timestamp,\n    Ndata: msg.Ndata\n}\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1260,
+        "y": 1120,
+        "wires": [
+            [
+                "0439aef5777e8e5c",
+                "3b6e25c2db3d9bd2",
+                "e30db37aa7a25987",
+                "4bbf0227f2b1f56b"
+            ]
+        ]
+    },
+    {
+        "id": "70dbf1e2c2c07969",
+        "type": "batch",
+        "z": "b6720ac1884745ba",
+        "name": "N=32",
+        "mode": "count",
+        "count": "32",
+        "overlap": "31",
+        "interval": 10,
+        "allowEmptySequence": false,
+        "topics": [],
+        "x": 1130,
+        "y": 1040,
+        "wires": [
+            [
+                "fe89368f9699fcf7"
+            ]
+        ]
+    },
+    {
+        "id": "fe89368f9699fcf7",
+        "type": "join",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "mode": "auto",
+        "build": "object",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": false,
+        "timeout": "",
+        "count": "",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "num",
+        "reduceFixup": "",
+        "x": 1130,
+        "y": 1080,
+        "wires": [
+            [
+                "4b47cbc8ddc63c8d"
+            ]
+        ]
+    },
+    {
+        "id": "0439aef5777e8e5c",
+        "type": "debug",
+        "z": "b6720ac1884745ba",
+        "name": "debug 29",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1320,
+        "y": 1300,
+        "wires": []
+    },
+    {
+        "id": "3b6e25c2db3d9bd2",
+        "type": "change",
+        "z": "b6720ac1884745ba",
+        "name": "acc_x_PSD",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.acc_x_PSD",
+                "tot": "msg",
+                "dc": true
+            },
+            {
+                "t": "set",
+                "p": "tag",
+                "pt": "msg",
+                "to": "{\"dataType\":\"acc_x_PSD\"}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1330,
+        "y": 1180,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "e30db37aa7a25987",
+        "type": "change",
+        "z": "b6720ac1884745ba",
+        "name": "acc_y_PSD",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.acc_y_PSD",
+                "tot": "msg",
+                "dc": true
+            },
+            {
+                "t": "set",
+                "p": "tag",
+                "pt": "msg",
+                "to": "{\"dataType\":\"acc_y_PSD\"}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1330,
+        "y": 1220,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "4bbf0227f2b1f56b",
+        "type": "change",
+        "z": "b6720ac1884745ba",
+        "name": "acc_z_PSD",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.acc_z_PSD",
+                "tot": "msg",
+                "dc": true
+            },
+            {
+                "t": "set",
+                "p": "tag",
+                "pt": "msg",
+                "to": "{\"dataType\":\"acc_z_PSD\"}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1330,
+        "y": 1260,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "7d49d3ccfb665b8d",
+        "type": "join",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "mode": "auto",
+        "build": "object",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": false,
+        "timeout": "",
+        "count": "",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "",
+        "reduceFixup": "",
+        "x": 1270,
+        "y": 260,
+        "wires": [
+            [
+                "af3c1648ffcc024c",
+                "14173372fe463424"
+            ]
+        ]
+    },
+    {
+        "id": "8c5af822a97c77b3",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "makeDataObject",
+        "func": "// ========== measurement用データ ==========\nlet measurement = msg.measurement\n\n// ========== tag用データ ==========\nconst node_id = msg.Ndata.NodeId\nconst sensor_type = msg.Ndata.SensorType\nconst tag = msg.tag;\n\nlet tagData = {\n    \"NodeId\": String(node_id),\n    \"SensorType\": String(sensor_type),\n}\n\nif (tag) {\n    Object.assign(tagData, tag)\n}\n\n// ========== field用データ ==========\nlet fields = msg.payload\n\n// ========== timestamp用データ ==========\nlet timestamp = msg.timestamp\n\n// ========== データオブジェクト作成 ==========\nlet data = {\n    measurement: measurement,\n    tags: tagData,\n    fields: fields,\n    timestamp: timestamp.getTime()\n}\n\nmsg.payload = data\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 970,
+        "y": 220,
+        "wires": [
+            [
+                "7dea470cdc7f4c23"
+            ]
+        ]
+    },
+    {
+        "id": "14173372fe463424",
+        "type": "debug",
+        "z": "b6720ac1884745ba",
+        "name": "debug 30",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1300,
+        "y": 340,
+        "wires": []
+    },
+    {
+        "id": "e3f63e1fc7065778",
+        "type": "batch",
+        "z": "b6720ac1884745ba",
+        "name": "1s_Batch",
+        "mode": "interval",
+        "count": "10",
+        "overlap": 0,
+        "interval": "1",
+        "allowEmptySequence": false,
+        "topics": [],
+        "x": 1140,
+        "y": 260,
+        "wires": [
+            [
+                "7d49d3ccfb665b8d"
+            ]
+        ]
+    },
+    {
+        "id": "84cf38b3719dcb34",
+        "type": "comment",
+        "z": "b6720ac1884745ba",
+        "name": "PSD計算",
+        "info": "",
+        "x": 1260,
+        "y": 1080,
+        "wires": []
+    },
+    {
+        "id": "d6ef3870376c654f",
+        "type": "comment",
+        "z": "b6720ac1884745ba",
+        "name": "DB書き込み用のデータ作成(バッチ処理対応)",
+        "info": "入力: \n```\nmsg: {\n    measurement: String,\n    Ndata: {\n        NodeName, String,\n        SensorType: String,\n    },\n    payload: JSON object,\n    timestamp: Date,\n}\n```\n\n出力:\n```\nmsg.payload: {\n    bucket: String,  // \"node-data\"\n    precision: String, // \"ms\"\n    data: [\n        {\n        measurement: String,\n        tags: {\n                \"NodeId\": String,\n                \"SensorType\": String,\n            },\n            fields: JSON object,\n            timestamp: number\n        },\n        {\n        measurement: String,\n        tags: {\n                \"NodeId\": String,\n                \"SensorType\": String,\n            },\n            fields: JSON object,\n            timestamp: number\n        },\n        ...\n    ]\n}\n```",
+        "x": 1050,
+        "y": 180,
+        "wires": []
+    },
+    {
+        "id": "2d72b317f2b8e748",
+        "type": "batch",
+        "z": "b6720ac1884745ba",
+        "name": "60s",
+        "mode": "count",
+        "count": "30",
+        "overlap": "29",
+        "interval": "60",
+        "allowEmptySequence": false,
+        "topics": [],
+        "x": 250,
+        "y": 1260,
+        "wires": [
+            [
+                "26e854a5adac3e93"
+            ]
+        ]
+    },
+    {
+        "id": "26e854a5adac3e93",
+        "type": "join",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "mode": "auto",
+        "build": "object",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": "false",
+        "timeout": "",
+        "count": "",
+        "reduceRight": false,
+        "x": 370,
+        "y": 1260,
+        "wires": [
+            [
+                "1a0bf43a36cec939"
+            ]
+        ]
+    },
+    {
+        "id": "1a0bf43a36cec939",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "calc_RRI_PSD",
+        "func": "// ================ define functions ================\nconst expi = (theta) => {\n    return [Math.cos(theta), Math.sin(theta)]\n}\nconst iadd = ([ax, ay], [bx, by]) => {\n    return [ax + bx, ay + by]\n}\nconst isub = ([ax, ay], [bx, by]) => {\n    return [ax - bx, ay - by]\n}\nconst imul = ([ax, ay], [bx, by]) => {\n    return [ax * bx - ay * by, ax * by + ay * bx]\n}\nconst isum = (cs) => {\n    return cs.reduce((s, c) => iadd(s, c), [0, 0])\n}\nconst conj = ([x, y]) => {\n    return [x, -y];\n}\nconst revBit = (k,n0) =>{\n    if (k === 1) return n0;\n    const s1 = ((n0 & 0xaaaaaaaa) >>> 1) | ((n0 & 0x55555555) << 1);\n    if (k === 2) return s1;\n    const s2 = ((s1 & 0xcccccccc) >>> 2) | ((s1 & 0x33333333) << 2);\n    if (k <= 4) return s2 >>> (4 - k);\n    const s3 = ((s2 & 0xf0f0f0f0) >>> 4) | ((s2 & 0x0f0f0f0f) << 4);\n    if (k <= 8) return s3 >>> (8 - k);\n    const s4 = ((s3 & 0xff00ff00) >>> 8) | ((s3 & 0x00ff00ff) << 8);\n    if (k <= 16) return s4 >>> (16 - k);\n    const s5 = ((s4 & 0xffff0000) >>> 16) | ((s4 & 0x0000ffff) << 16);\n    return s5 >>> (32 - k);\n}\n\n/* calc fft by recursive function*/\nconst fftrec = (c, T, N) => {\n    const k = Math.log2(N);\n    const rec = c.map((_, i) => c[revBit(k, i)]);\n    for (let Nh = 1; Nh < N; Nh *= 2) {\n        T /= 2;\n        for (let s = 0; s < N; s += Nh * 2) {\n            for (let i = 0; i < Nh; i++) {\n                const l = rec[s + i], re = imul(rec[s + i + Nh], expi(T * i));\n                [rec[s + i], rec[s + i + Nh]] = [iadd(l, re), isub(l, re)];\n            }\n        }\n    }\n    return rec\n}\n\n/* use recursive fft method */\nconst fft = (f) => {\n    const N = f.length, T = -2 * Math.PI;\n    return fftrec(f, T, N);\n}\nconst ifft = (F) => {\n    const N = F.length, T = 2 * Math.PI;\n    return fftrec(F, T, N).map(([r, i]) => [r / N, i / N]);\n}\n\n/* FFT by Bluestein's algorithm */\nconst fftin = (c, T, N) => {\n    const Nd = N * 2;\n    const bc = c.map((_, n) => expi(T * n * n / Nd));\n    const b = bc.map(conj);\n    const a = c.map((cn, n) => imul(cn, bc[n]));\n\n    const N2 = 1 << (32 - Math.clz32(Nd - 1));\n    const a2 = a.concat(Array(N2 - N).fill([0, 0]));\n    const b2 = b.concat(Array(N2 - Nd + 1).fill([0, 0]), b.slice(1).reverse());\n    const A2 = fft(a2);\n    const B2 = fft(b2);\n    const AB2 = A2.map((A2n, n) => imul(A2n, B2[n]));\n    const ab2 = ifft(AB2);\n    return bc.map((bcn, n) => imul(bcn, ab2[n]));\n}\n\nconst fft1 = (f) => {\n    const N = f.length, T = -2 * Math.PI;\n    return fftin(f, T, N);\n}\nconst ifft1 = (F) => {\n    const N = F.length, T = 2 * Math.PI;\n    return fftin(F, T, N).map(([r, i]) => [r / N, i / N]);\n}\n\nconst calcPowerSpectrum = (f, resolution) => {\n    return f.map((r, index) => [(resolution * index).toPrecision(6), Math.sqrt(r[0] ** 2 + r[1] ** 2)])\n}\n\n// ================================================\n\n/**\n *  横軸分解能\n *  ΔHz = 1/(2^N * Δt) \n *  \n */\n\nlet input = msg.payload\nlet timestamp = msg.timestamp\n// let samplingTime = msg.samplingTime\n// let samplingTime = 500;\nlet samplingTime = 1000;\nconst f_resolution = 1 / (input.length * samplingTime/1000)\n// const f_resolution = 1 / (input.length * 0.2)\n\nlet RRIArr=[]\ninput.map((r)=> {\n    RRIArr.push([r[\"RRI\"], 0]);\n});\n\nconst F_RRI = fft1(RRIArr)\n\nconst PS = calcPowerSpectrum(F_RRI, f_resolution)\n\nlet RRI_PS_obj = {}\n\nPS.map((r)=> RRI_PS_obj[r[0]] = r[1])\n\nlet RRI_PSD = {}\n\nconst offset = 1e-10\n\nPS.map((r) => RRI_PSD[r[0]] = 10 * Math.log10(r[1] / f_resolution + offset))\n\nmsg = {\n    payload:{\n        PS: RRI_PS_obj,\n        PSD: RRI_PSD,\n        F: F_RRI\n    },\n    timestamp: timestamp,\n    Ndata: msg.Ndata\n}\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 300,
+        "y": 1300,
+        "wires": [
+            [
+                "379f8fda0d499a05"
+            ]
+        ]
+    },
+    {
+        "id": "e2ded76d34733038",
+        "type": "delay",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "pauseType": "rate",
+        "timeout": "5",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 250,
+        "y": 1220,
+        "wires": [
+            [
+                "2d72b317f2b8e748",
+                "3b961702d1e24f2a"
+            ]
+        ]
+    },
+    {
+        "id": "379f8fda0d499a05",
+        "type": "debug",
+        "z": "b6720ac1884745ba",
+        "name": "debug 31",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 500,
+        "y": 1300,
+        "wires": []
+    },
+    {
+        "id": "a7222af7905c42d7",
+        "type": "change",
+        "z": "b6720ac1884745ba",
+        "name": "RRI_PSD",
+        "rules": [
+            {
+                "t": "set",
+                "p": "tag",
+                "pt": "msg",
+                "to": "{\"dataType\":\"RRI_PSD\"}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 600,
+        "y": 480,
+        "wires": [
+            [
+                "08ae408d707110ed"
+            ]
+        ]
+    },
+    {
+        "id": "7ea651ea5c526dbd",
+        "type": "change",
+        "z": "b6720ac1884745ba",
+        "name": "set_Key(acc_x)",
+        "rules": [
+            {
+                "t": "set",
+                "p": "Key",
+                "pt": "msg",
+                "to": "acc_x",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 800,
+        "y": 1500,
+        "wires": [
+            [
+                "429f910067e8a8a0"
+            ]
+        ]
+    },
+    {
+        "id": "429f910067e8a8a0",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "calc_PSD",
+        "func": "// ================ define functions ================\nconst expi = (theta) => {\n    return [Math.cos(theta), Math.sin(theta)]\n}\nconst iadd = ([ax, ay], [bx, by]) => {\n    return [ax + bx, ay + by]\n}\nconst isub = ([ax, ay], [bx, by]) => {\n    return [ax - bx, ay - by]\n}\nconst imul = ([ax, ay], [bx, by]) => {\n    return [ax * bx - ay * by, ax * by + ay * bx]\n}\nconst isum = (cs) => {\n    return cs.reduce((s, c) => iadd(s, c), [0, 0])\n}\nconst conj = ([x, y]) => {\n    return [x, -y];\n}\nconst revBit = (k,n0) =>{\n    if (k === 1) return n0;\n    const s1 = ((n0 & 0xaaaaaaaa) >>> 1) | ((n0 & 0x55555555) << 1);\n    if (k === 2) return s1;\n    const s2 = ((s1 & 0xcccccccc) >>> 2) | ((s1 & 0x33333333) << 2);\n    if (k <= 4) return s2 >>> (4 - k);\n    const s3 = ((s2 & 0xf0f0f0f0) >>> 4) | ((s2 & 0x0f0f0f0f) << 4);\n    if (k <= 8) return s3 >>> (8 - k);\n    const s4 = ((s3 & 0xff00ff00) >>> 8) | ((s3 & 0x00ff00ff) << 8);\n    if (k <= 16) return s4 >>> (16 - k);\n    const s5 = ((s4 & 0xffff0000) >>> 16) | ((s4 & 0x0000ffff) << 16);\n    return s5 >>> (32 - k);\n}\n\n/* calc fft by recursive function*/\nconst fftrec = (c, T, N) => {\n    const k = Math.log2(N);\n    const rec = c.map((_, i) => c[revBit(k, i)]);\n    for (let Nh = 1; Nh < N; Nh *= 2) {\n        T /= 2;\n        for (let s = 0; s < N; s += Nh * 2) {\n            for (let i = 0; i < Nh; i++) {\n                const l = rec[s + i], re = imul(rec[s + i + Nh], expi(T * i));\n                [rec[s + i], rec[s + i + Nh]] = [iadd(l, re), isub(l, re)];\n            }\n        }\n    }\n    return rec\n}\n\n/* use recursive fft method */\nconst fft = (f) => {\n    const N = f.length, T = -2 * Math.PI;\n    return fftrec(f, T, N);\n}\nconst ifft = (F) => {\n    const N = F.length, T = 2 * Math.PI;\n    return fftrec(F, T, N).map(([r, i]) => [r / N, i / N]);\n}\n\n/* FFT by Bluestein's algorithm */\nconst fftin = (c, T, N) => {\n    const Nd = N * 2;\n    const bc = c.map((_, n) => expi(T * n * n / Nd));\n    const b = bc.map(conj);\n    const a = c.map((cn, n) => imul(cn, bc[n]));\n\n    const N2 = 1 << (32 - Math.clz32(Nd - 1));\n    const a2 = a.concat(Array(N2 - N).fill([0, 0]));\n    const b2 = b.concat(Array(N2 - Nd + 1).fill([0, 0]), b.slice(1).reverse());\n    const A2 = fft(a2);\n    const B2 = fft(b2);\n    const AB2 = A2.map((A2n, n) => imul(A2n, B2[n]));\n    const ab2 = ifft(AB2);\n    return bc.map((bcn, n) => imul(bcn, ab2[n]));\n}\n\nconst fft1 = (f) => {\n    const N = f.length, T = -2 * Math.PI;\n    return fftin(f, T, N);\n}\nconst ifft1 = (F) => {\n    const N = F.length, T = 2 * Math.PI;\n    return fftin(F, T, N).map(([r, i]) => [r / N, i / N]);\n}\n\nconst calcPowerSpectrum = (f, resolution) => {\n    return f.map((r, index) => [(resolution * index).toPrecision(4), Math.sqrt(r[0] ** 2 + r[1] ** 2)])\n}\n\n// ================================================\n\n/**\n *  横軸分解能\n *  ΔHz = 1/(2^N * Δt) \n *  \n */\n\nlet input = msg.payload\nlet timestamp = msg.timestamp\n// let samplingTime = msg.samplingTime\n// let samplingTime = 500;\nlet samplingTime = 1000;\nconst f_resolution = 1 / (input.length * samplingTime/1000)\n// const f_resolution = 1 / (input.length * 0.2)\n\nconst dataKey = msg.Key\n\nlet dataArr = []\ninput.map((r) => {\n    dataArr.push([r[dataKey], 0]);\n});\n\nconst F = fft1(dataArr)\n\nconst PS = calcPowerSpectrum(F, f_resolution)\n\nlet PS_obj = {}\n\nPS.map((r)=> PS_obj[r[0]] = r[1])\n\nlet PSD = {}\n\nconst offset = 1e-10\n\nPS.map((r) => PSD[r[0]] = 10 * Math.log10(r[1] / f_resolution + offset))\n\nmsg = {\n    payload:{\n        PS: PS,\n        PSD: PSD,\n        F: F\n    },\n    timestamp: timestamp,\n    Ndata: msg.Ndata\n}\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 800,
+        "y": 1540,
+        "wires": [
+            [
+                "ca2ca8374b04adff"
+            ]
+        ]
+    },
+    {
+        "id": "ca2ca8374b04adff",
+        "type": "debug",
+        "z": "b6720ac1884745ba",
+        "name": "debug 33",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 820,
+        "y": 1580,
+        "wires": []
+    },
+    {
+        "id": "80c70cabb4e637d7",
+        "type": "subflow:a893cba93cb6f041",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "env": [
+            {
+                "name": "WINDOW_FUNCTION",
+                "value": "hanning",
+                "type": "str"
+            }
+        ],
+        "x": 400,
+        "y": 280,
+        "wires": [
+            [
+                "119b04505ca29d99"
+            ],
+            [
+                "4452f71436582777"
+            ]
+        ]
+    },
+    {
+        "id": "a0b592cb8de3bbb5",
+        "type": "debug",
+        "z": "b6720ac1884745ba",
+        "d": true,
+        "name": "debug 34",
+        "active": false,
+        "tosidebar": false,
+        "console": true,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 250,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "0e5d70d43a06821b",
+        "type": "batch",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "mode": "interval",
+        "count": 10,
+        "overlap": 0,
+        "interval": 10,
+        "allowEmptySequence": false,
+        "topics": [],
+        "x": 1050,
+        "y": 1380,
+        "wires": [
+            [
+                "fe161fba50cd5614"
+            ]
+        ]
+    },
+    {
+        "id": "fe161fba50cd5614",
+        "type": "join",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "mode": "auto",
+        "build": "object",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": true,
+        "timeout": "",
+        "count": "",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "",
+        "reduceFixup": "",
+        "x": 1170,
+        "y": 1380,
+        "wires": [
+            [
+                "5b1fd72bc591c635"
+            ]
+        ]
+    },
+    {
+        "id": "5b1fd72bc591c635",
+        "type": "file",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "filename": "Hub_log.txt",
+        "filenameType": "str",
+        "appendNewline": false,
+        "createDir": false,
+        "overwriteFile": "false",
+        "encoding": "utf8",
+        "x": 1330,
+        "y": 1380,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "9e139c834886661a",
+        "type": "template",
+        "z": "b6720ac1884745ba",
+        "name": "PPG",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n    \"ppg\": {{payload.ppg}}\n}",
+        "output": "json",
+        "x": 590,
+        "y": 360,
+        "wires": [
+            [
+                "5ed2c544f2001469"
+            ]
+        ],
+        "info": "酸素飽和度[%]"
+    },
+    {
+        "id": "02a330a46bb32c85",
+        "type": "debug",
+        "z": "b6720ac1884745ba",
+        "name": "debug 37",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 160,
+        "y": 820,
+        "wires": []
+    },
+    {
+        "id": "7dea470cdc7f4c23",
+        "type": "switch",
+        "z": "b6720ac1884745ba",
+        "name": "Batch_switch",
+        "property": "USE_BATCH",
+        "propertyType": "env",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "1",
+                "vt": "num"
+            },
+            {
+                "t": "neq",
+                "v": "1",
+                "vt": "num"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 970,
+        "y": 280,
+        "wires": [
+            [
+                "e3f63e1fc7065778"
+            ],
+            [
+                "af3c1648ffcc024c"
+            ]
+        ]
+    },
+    {
+        "id": "6662ce01c7f7d6fa",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "calc_LFHF",
+        "func": "// =================================\n// パワースペクトル密度の入力を受け取る\n// 入力データからキーである周波数のリストを取り出す\n// 周波数リストを文字列から数値に変換する\n// 周波数リストからLF(0.05Hz~0.15Hzまで)に該当するインデックスを取り出す\n// 周波数リストからHF(0.15Hz~0.40Hzまで)に該当するインデックスを取り出す\n// 各領域のインデックスを用いて積分値を算出する\n// LF / HFを計算し、ストレス指標とする\n// =================================\n\nconst VLFRANGE = [0, 0.05]      // 低周波数成分\nconst LFRANGE = [0.05, 0.15]    // 中間周波数成分\nconst HFRANGE = [0.15, 0.40]    // 高周波数成分\n\nlet input = msg.payload\n\n// PSDのオブジェクトからキーとバリューをリストにして取り出す\nlet hzKeys = Object.keys(input)\nlet hzValues = Object.values(input)\n\nlet hzList = []\nhzKeys.map(str => hzList.push(parseFloat(str)))\n\n// ========= 積分計算 =========\n\n// [WIP]単純な加算しか行っていないため、正確に積分値を計算する場合には修正が必要\n\nlet HF = 0\nlet LF = 0\nhzList.map((value, index)=>{\n    if((value >= LFRANGE[0]) &&(value <= LFRANGE[1])){\n        LF += hzValues[index]\n    }\n    if ((value > HFRANGE[0]) && (value <= HFRANGE[1])) {\n        HF += hzValues[index]\n    }\n})\n\nlet LFHF\n\nif(HF == 0){\n    const offset = 1e-10\n    LFHF = LF / (HF + offset)\n} else{\n    LFHF = LF / HF\n}\n\nmsg.payload= {\n    LF: LF,\n    HF: HF,\n    LFHF: LFHF\n}\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 610,
+        "y": 1180,
+        "wires": [
+            [
+                "d7f167fe7d0d7b0f",
+                "af0a37733e0c6c65"
+            ]
+        ]
+    },
+    {
+        "id": "d7f167fe7d0d7b0f",
+        "type": "debug",
+        "z": "b6720ac1884745ba",
+        "name": "debug 40",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 660,
+        "y": 1240,
+        "wires": []
+    },
+    {
+        "id": "3b961702d1e24f2a",
+        "type": "subflow:a99e786f7afaa3c5",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "env": [
+            {
+                "name": "PROPERTY",
+                "value": "RRI",
+                "type": "str"
+            },
+            {
+                "name": "SAMPLING_RATE",
+                "value": "1000",
+                "type": "num"
+            },
+            {
+                "name": "BATCH_TYPE",
+                "value": "1",
+                "type": "str"
+            },
+            {
+                "name": "MSG_NUM",
+                "value": "32",
+                "type": "num"
+            },
+            {
+                "name": "OVERLAP",
+                "value": "31",
+                "type": "num"
+            },
+            {
+                "name": "MSG_NUMBER",
+                "value": "32",
+                "type": "num"
+            }
+        ],
+        "x": 430,
+        "y": 1100,
+        "wires": [
+            [],
+            [],
+            [
+                "e8e47beb50b0e827",
+                "6662ce01c7f7d6fa"
+            ]
+        ]
+    },
+    {
+        "id": "e8e47beb50b0e827",
+        "type": "change",
+        "z": "b6720ac1884745ba",
+        "name": "RRI_PSD",
+        "rules": [
+            {
+                "t": "set",
+                "p": "tag",
+                "pt": "msg",
+                "to": "{\"dataType\":\"RRI_PSD\"}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 600,
+        "y": 1100,
+        "wires": [
+            [
+                "08ae408d707110ed"
+            ]
+        ]
+    },
+    {
+        "id": "af0a37733e0c6c65",
+        "type": "template",
+        "z": "b6720ac1884745ba",
+        "name": "LFHF",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "handlebars",
+        "syntax": "mustache",
+        "template": "{\n    \"LF\": {{payload.LF}},\n    \"HF\": {{payload.HF}},\n    \"LFHF\": {{payload.LFHF}}\n}",
+        "output": "json",
+        "x": 590,
+        "y": 520,
+        "wires": [
+            [
+                "08ae408d707110ed"
+            ]
+        ]
+    },
+    {
+        "id": "1cd6640fbe393766",
+        "type": "comment",
+        "z": "b6720ac1884745ba",
+        "name": "LFHF",
+        "info": "> http://hclab.sakura.ne.jp/stress_novice_LFHF.html\n\nHF: 3~4秒程度の周期を持つ呼吸を信号源とする変動波\nLF: 約10秒程度の血圧変化を信号源とする変動波\n\nHF成分は副交感神経が緊張(活性化)している場合にのみ\n心拍変動に現れる\n\nLF成分は交感神経が緊張しているときも、\n副交感神経が緊張しているときも現れる\n\nリラックス状態、つまり副交感神経が活性化している場合は\nHF成分もLF成分も現れる\nストレス状態にある場合、つまり交感神経が活性化している場合は\nLF成分が現れる一方、HF成分が減少する\n\n従って、リラックス状態にあると相対的にHF成分が大きくなるため\nLF/HFの値が小さくなる\n逆にストレス状態にあるとHFに対してLF成分が大きくなるので\nLF/HFの値は大きくなる\n\nLF/HFがいくつ以上になるとストレス状態と判定するかという\n判定基準は、個人差や測定条件などにより変わる",
+        "x": 590,
+        "y": 1140,
+        "wires": []
+    },
+    {
+        "id": "1ce32fcd387a62e5",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "GNSS_proc_v02",
+        "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nlet datetime = msg.receiveDate\nlet hubDate = msg.hubDate\n\nif (tlen == 0) {\n    return null;\n}\n\nlet latitude = parseInt(input[0] + input[1] + input[2] + input[3] + input[4] + input[5] + input[6] + input[7] + input[8], 16)\nlet longitude = parseInt(input[9] + input[10] + input[11] + input[12] + input[13] + input[14] + input[15] + input[16] + input[17], 16)\nlet hdop = parseInt(input[18] + input[19] + input[20] + input[21],16)\nlet altitude = parseInt(input[22] + input[23] + input[24] + input[25] + input[26], 16)\nlet geoid = parseInt(input[27] + input[28] + input[29] + input[30], 16)\nlet diffAge = parseInt(input[31] + input[32] + input[33] + input[34], 16)\nlet stationId = parseInt(input[35] + input[36] + input[37] + input[38], 16)\nlet checksum = parseInt(input[39] + input[40], 16)\nlet NSflg = (parseInt(input[41],16) & 0b10000000) >> 7 // 0x80\nlet EWflg = (parseInt(input[41],16) & 0b01000000) >> 6 // 0x40\nlet gnssMode = (parseInt(input[41],16) & 0b00111000) >> 3 // 0x38\nlet numSVs = ((input[41] & 0b00000111) << 1) | ((input[42] & 0b10000000) >> 7)\nlet seasign = (input[42] & 0b01000000) >> 6\n\n// [TODO]dd.mmmmmmmに直す計算処理を追加すること\nlatitude = (!NSflg) ? latitude : -1* latitude\nlongitude = (!EWflg) ? longitude : -1* longitude\n\nmsg.payload= {\n    lat: latitude,\n    lng: longitude,\n    alt: altitude,\n    geoid: geoid,\n    mode: gnssMode,\n    numSVs: numSVs,\n    HDOP: hdop,\n    // diffAge: diffAge,\n    // stationId: stationId\n}\n\n// // payload内にnullがあるかどうかチェックする関数\nconst hasNull = (obj) =>{\n    for(let key in obj){\n        if(obj[key] === null){\n            return true\n        }\n    }\n    return false\n}\n\n// // nullがない時だけ送信する\nif(!hasNull(msg.payload)){\n    return msg\n}else{\n    return null\n}\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 430,
+        "y": 320,
+        "wires": [
+            [
+                "9ea1a8f1f319a729"
+            ]
+        ]
+    },
+    {
+        "id": "74adaed7e5943e8f",
+        "type": "subflow:997a3042cd0e7cd4",
+        "z": "b6720ac1884745ba",
+        "name": "",
+        "x": 400,
+        "y": 360,
+        "wires": [
+            [
+                "9e139c834886661a"
+            ]
+        ]
+    },
+    {
+        "id": "72c68556b47d4bca",
+        "type": "ui_group",
+        "name": "GPS",
+        "tab": "b75df0105dd2322d",
+        "order": 8,
+        "disp": true,
+        "width": "6",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "48d6ca06f8bc4c6d",
+        "type": "ui_group",
+        "name": "SpO2",
+        "tab": "b75df0105dd2322d",
+        "order": 7,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "dc3d060716113d9c",
+        "type": "ui_group",
+        "name": "Imu",
+        "tab": "b75df0105dd2322d",
+        "order": 3,
+        "disp": true,
+        "width": "6",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "7ac7eada7585d26c",
+        "type": "ui_group",
+        "name": "pressure",
+        "tab": "b75df0105dd2322d",
+        "order": 2,
+        "disp": true,
+        "width": "6",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "d422b18869675188",
+        "type": "ui_group",
+        "name": "ECG",
+        "tab": "b75df0105dd2322d",
+        "order": 5,
+        "disp": true,
+        "width": "6",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "453bf79555276bf5",
+        "type": "ui_group",
+        "name": "ECG_history",
+        "tab": "b75df0105dd2322d",
+        "order": 6,
+        "disp": true,
+        "width": "6",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "74ae7cc420037d76",
+        "type": "ui_group",
+        "name": "lmu_history",
+        "tab": "b75df0105dd2322d",
+        "order": 4,
+        "disp": true,
+        "width": "6",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "dd73c994dc8654d2",
+        "type": "Stackhero-InfluxDB-v2-Server",
+        "name": "InfluxDB",
+        "host": "127.0.0.1",
+        "port": "8081",
+        "tls": false
+    },
+    {
+        "id": "8ce6216da0f3cc43",
+        "type": "serial-port",
+        "serialport": "COM8",
+        "serialbaud": "115200",
+        "databits": "8",
+        "parity": "none",
+        "stopbits": "1",
+        "waitfor": "",
+        "dtr": "none",
+        "rts": "none",
+        "cts": "none",
+        "dsr": "none",
+        "newline": "\\n",
+        "bin": "false",
+        "out": "char",
+        "addchar": "",
+        "responsetimeout": "10000"
+    },
+    {
+        "id": "9179fe2d9d8fc687",
+        "type": "serial-port",
+        "serialport": "COM5",
+        "serialbaud": "115200",
+        "databits": "8",
+        "parity": "none",
+        "stopbits": "1",
+        "waitfor": "",
+        "dtr": "none",
+        "rts": "none",
+        "cts": "none",
+        "dsr": "none",
+        "newline": "\\n",
+        "bin": "false",
+        "out": "char",
+        "addchar": "",
+        "responsetimeout": "10000"
+    },
+    {
+        "id": "9e8a3098403f7ebc",
+        "type": "serial-port",
+        "serialport": "COM3",
+        "serialbaud": "115200",
+        "databits": "8",
+        "parity": "none",
+        "stopbits": "1",
+        "waitfor": "",
+        "dtr": "none",
+        "rts": "none",
+        "cts": "none",
+        "dsr": "none",
+        "newline": "\\n",
+        "bin": "false",
+        "out": "char",
+        "addchar": "",
+        "responsetimeout": "10000"
+    },
+    {
+        "id": "b75df0105dd2322d",
+        "type": "ui_tab",
+        "name": "IoT Sensor",
+        "icon": "dashboard",
+        "disabled": false,
+        "hidden": false
+    }
+]

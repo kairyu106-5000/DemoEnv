@@ -1,0 +1,15 @@
+{
+  "name": "nodered",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node-red --settings ./.node-red/settings.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "node-red": "^4.0.3"
+  }
+}
