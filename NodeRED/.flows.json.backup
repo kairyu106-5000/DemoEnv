@@ -779,7 +779,27 @@
         "id": "7e367b8d2423e3e4",
         "type": "serial-port",
         "name": "",
-        "serialport": "COM4",
+        "serialport": "COM3",
+        "serialbaud": "115200",
+        "databits": "8",
+        "parity": "none",
+        "stopbits": "1",
+        "waitfor": "",
+        "dtr": "none",
+        "rts": "none",
+        "cts": "none",
+        "dsr": "none",
+        "newline": "\\n",
+        "bin": "false",
+        "out": "char",
+        "addchar": "",
+        "responsetimeout": "10000"
+    },
+    {
+        "id": "2d3b9b3ad9e679b2",
+        "type": "serial-port",
+        "name": "",
+        "serialport": "COM11",
         "serialbaud": "115200",
         "databits": "8",
         "parity": "none",
@@ -799,9 +819,11 @@
         "id": "2cbb8f3dbfd9630c",
         "type": "function",
         "z": "997a3042cd0e7cd4",
+        "d": true,
         "name": "parse_PPG_data",
         "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nlet hubDate = msg.hubDate\n\nconst BUFFER_SIZE = 3;\nconst samplingTime = 40; // ms\n\nif (tlen == 0) {\n    return null;\n}\n// ======= Nodeタイムスタンプ管理用 ======= \nconst contextName = {\n    // Hubのタイムスタンプを使用する\n    startDate: \"$parent.startDate_\" + msg.port,\n    startTime: \"$parent.startTime_\" + msg.port,\n}\n\nconst getCurrentDate = (timeStamp) => {\n    let startDate = flow.get(contextName.startDate)\n    let startTime = flow.get(contextName.startTime)\n    let diffTime = timeStamp - startTime\n    let currentDate = new Date(startDate + diffTime)\n    return currentDate\n}\n\n// ========================================================\n\nlet timeValue = parseInt(input[0] + input[1] + input[2] + input[3], 16)\n\n// contextデータを使用して時刻を算出する\nlet headDate = getCurrentDate(timeValue)\n\nlet ppgBuffer = input.slice(4)\nlet buffer = new Array()\n// lenのサイズに従ってBuffer配列を作成する\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    buffer[cnt] = new Array()\n    for (let i = 0; i < BUFFER_SIZE; i++) {\n        buffer[cnt].push(ppgBuffer[i + BUFFER_SIZE * cnt])\n    }\n}\n\nfor (let cnt = 0; cnt<tlen; cnt++) {\n    let ppgValue = parseInt(buffer[cnt][0] + buffer[cnt][1] + buffer[cnt][2],16)\n    // PPGの範囲は0~100%のため、負数の処理は不要の想定\n    // if (ppgValue & 0x800000) ppgValue |= ~0xffffff; //24bit\n    \n    let measurementTime = new Date(headDate.getTime() + (samplingTime * cnt))\n    msg = {\n        Ndata: msg.Ndata,\n        payload: {\n            ppg: ppgValue,\n            Ndata: msg.Ndata,\n            timestamp: measurementTime\n        },\n        timestamp: measurementTime,\n        samplingTime: samplingTime,\n    }\n    node.send(msg);\n}\n\nreturn null;",
         "outputs": 1,
+        "timeout": "",
         "noerr": 0,
         "initialize": "",
         "finalize": "",
@@ -817,7 +839,7 @@
         "type": "function",
         "z": "a893cba93cb6f041",
         "name": "Imu_proc",
-        "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nlet hubDate = msg.hubDate\nconst samplingTime = 240\nconst BUFFER_SIZE = 16\n\nif (tlen == 0) {\n    return null;\n}\n\n// ======= Nodeタイムスタンプ管理用 ======= \nconst contextName = {\n    // Hubのタイムスタンプを使用\n    startDate: \"$parent.startDate_\" + msg.port,\n    startTime: \"$parent.startTime_\" + msg.port,\n}\n\nconst getCurrentDate = (timeStamp) => {\n    let startDate = flow.get(contextName.startDate)\n    let startTime = flow.get(contextName.startTime)\n    let diffTime = timeStamp - startTime\n    let currentDate = new Date(startDate + diffTime)\n    return currentDate\n}\n// =======================================\n\nlet buffer = []\n// lenのサイズに従ってBuffer配列を作成する\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    buffer[cnt] = new Array()\n    for (let i = 0; i < BUFFER_SIZE; i++) {\n        buffer[cnt].push(input[i + BUFFER_SIZE * cnt])\n    }\n}\n\nlet measurementTime\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    // 配列をgx~gz, ax~az, timestampに分ける\n    let gyro_x = parseInt(buffer[cnt][1],16)\n    if (gyro_x & 0x8000) gyro_x |= ~0xffff;\n    let gyro_y = parseInt(buffer[cnt][2],16)\n    if (gyro_y & 0x8000) gyro_y |= ~0xffff;\n    let gyro_z = parseInt(buffer[cnt][3],16)\n    if (gyro_z & 0x8000) gyro_z |= ~0xffff;\n    let acc_x = parseInt(buffer[cnt][5],16)\n    if (acc_x & 0x8000) acc_x |= ~0xffff;\n    let acc_y = parseInt(buffer[cnt][6],16)\n    if (acc_y & 0x8000) acc_y |= ~0xffff;\n    let acc_z = parseInt(buffer[cnt][7],16)\n    if (acc_z & 0x8000) acc_z |= ~0xffff;\n\n    //let gyro_x = parseInt(buffer[cnt][0] + buffer[cnt][1], 16)\n    //if (gyro_x & 0x8000) gyro_x |= ~0xffff;\n    //let gyro_y = parseInt(buffer[cnt][2] + buffer[cnt][3], 16)\n    //if (gyro_y & 0x8000) gyro_y |= ~0xffff;\n    //let gyro_z = parseInt(buffer[cnt][4] + buffer[cnt][5], 16)\n    //if (gyro_z & 0x8000) gyro_z |= ~0xffff;\n    //let acc_x = parseInt(buffer[cnt][6] + buffer[cnt][7], 16)\n    //if (acc_x & 0x8000) acc_x |= ~0xffff;\n    //let acc_y = parseInt(buffer[cnt][8] + buffer[cnt][9], 16)\n    //if (acc_y & 0x8000) acc_y |= ~0xffff;\n    //let acc_z = parseInt(buffer[cnt][10] + buffer[cnt][11], 16)\n    //if (acc_z & 0x8000) acc_z |= ~0xffff;\n    \n    let timeValue = parseInt(buffer[cnt][12] + buffer[cnt][13] + buffer[cnt][14] + buffer[cnt][15], 16)\n\n    // contextデータを使用して時刻を算出する\n    let measurementTime = getCurrentDate(timeValue)\n\n    let imuMsg = {\n        Ndata: msg.Ndata,\n        payload:{\n            gyro_x: gyro_x,\n            gyro_y: gyro_y,\n            gyro_z: gyro_z,\n            acc_x: acc_x,\n            acc_y: acc_y,\n            acc_z: acc_z\n        },\n        timestamp: measurementTime,\n        samplingTime: samplingTime,\n    }\n    node.send([imuMsg]);\n}\n\nreturn null;",
+        "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nlet hubDate = msg.hubDate\nconst samplingTime = 240\nconst BUFFER_SIZE = 16\n\nif (tlen == 0) {\n    return null;\n}\n\n// ======= Nodeタイムスタンプ管理用 ======= \nconst contextName = {\n    // Hubのタイムスタンプを使用\n    startDate: \"$parent.startDate_\" + msg.port,\n    startTime: \"$parent.startTime_\" + msg.port,\n}\n\nconst getCurrentDate = (timeStamp) => {\n    let startDate = flow.get(contextName.startDate)\n    let startTime = flow.get(contextName.startTime)\n    let diffTime = timeStamp - startTime\n    let currentDate = new Date(startDate + diffTime)\n    return currentDate\n}\n// =======================================\n\nlet buffer = []\n// lenのサイズに従ってBuffer配列を作成する\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    buffer[cnt] = new Array()\n    for (let i = 0; i < BUFFER_SIZE; i++) {\n        buffer[cnt].push(input[i + BUFFER_SIZE * cnt])\n    }\n}\n\nlet measurementTime\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    // 配列をgx~gz, ax~az, timestampに分ける\n    let gyro_x = parseInt(buffer[cnt][1],16)\n    if (gyro_x & 0x8000) gyro_x |= ~0xffff;\n    let gyro_y = parseInt(buffer[cnt][2],16)\n    if (gyro_y & 0x8000) gyro_y |= ~0xffff;\n    let gyro_z = parseInt(buffer[cnt][3],16)\n    if (gyro_z & 0x8000) gyro_z |= ~0xffff;\n    let acc_x = parseInt(buffer[cnt][5],16)\n    if (acc_x & 0x8000) acc_x |= ~0xffff;\n    let acc_y = parseInt(buffer[cnt][6],16)\n    if (acc_y & 0x8000) acc_y |= ~0xffff;\n    let acc_z = parseInt(buffer[cnt][7],16)\n    if (acc_z & 0x8000) acc_z |= ~0xffff;\n\n    //let gyro_x = parseInt(buffer[cnt][0] + buffer[cnt][1], 16)\n    //if (gyro_x & 0x8000) gyro_x |= ~0xffff;\n    //let gyro_y = parseInt(buffer[cnt][2] + buffer[cnt][3], 16)\n    //if (gyro_y & 0x8000) gyro_y |= ~0xffff;\n    //let gyro_z = parseInt(buffer[cnt][4] + buffer[cnt][5], 16)\n    //if (gyro_z & 0x8000) gyro_z |= ~0xffff;\n    //let acc_x = parseInt(buffer[cnt][6] + buffer[cnt][7], 16)\n    //if (acc_x & 0x8000) acc_x |= ~0xffff;\n    //let acc_y = parseInt(buffer[cnt][8] + buffer[cnt][9], 16)\n    //if (acc_y & 0x8000) acc_y |= ~0xffff;\n    //let acc_z = parseInt(buffer[cnt][10] + buffer[cnt][11], 16)\n    //if (acc_z & 0x8000) acc_z |= ~0xffff;\n    \n    let timeValue = parseInt(buffer[cnt][12] + buffer[cnt][13] + buffer[cnt][14] + buffer[cnt][15], 16)\n//このタイムスタンプ\n    // contextデータを使用して時刻を算出する\n    let measurementTime = getCurrentDate(timeValue)\n\n    let imuMsg = {\n        Ndata: msg.Ndata,\n        payload:{\n            gyro_x: gyro_x,\n            gyro_y: gyro_y,\n            gyro_z: gyro_z,\n            acc_x: acc_x,\n            acc_y: acc_y,\n            acc_z: acc_z\n        },\n        timestamp: measurementTime,\n        samplingTime: samplingTime,\n    }\n    node.send([imuMsg]);\n}\n\nreturn null;",
         "outputs": 1,
         "timeout": "",
         "noerr": 0,
@@ -2124,16 +2146,16 @@
                 "41ecf268f5a2dc90"
             ],
             [
-                "80c70cabb4e637d7"
+                "e89d7c2a2a4b9b09"
             ],
             [
                 "1ce32fcd387a62e5"
             ],
             [
-                "74adaed7e5943e8f"
+                "7076fddc400d835a"
             ],
             [
-                "07c05c694cf427b3"
+                "923ad57ae3b32dfc"
             ]
         ]
     },
@@ -2176,7 +2198,7 @@
         "type": "debug",
         "z": "b6720ac1884745ba",
         "name": "debug 10",
-        "active": false,
+        "active": true,
         "tosidebar": true,
         "console": true,
         "tostatus": false,
@@ -2197,7 +2219,7 @@
         "fieldType": "msg",
         "format": "handlebars",
         "syntax": "mustache",
-        "template": "{\n    \"latitude\": {{{payload.lat}}},\n    \"longitude\": {{{payload.lng}}},\n    \"altitude\": {{{payload.alt}}},\n    \"geoid\": {{{payload.geoid}}},\n    \"HDOP\": {{{payload.HDOP}}}\n}",
+        "template": "{\n    \"latitude\": {{{payload.lat}}},\n    \"longitude\": {{{payload.lng}}}\n}",
         "output": "json",
         "x": 590,
         "y": 320,
@@ -2310,7 +2332,7 @@
         "d": true,
         "name": "",
         "x": 890,
-        "y": 1060,
+        "y": 1080,
         "wires": [
             [],
             [],
@@ -2323,7 +2345,7 @@
         "type": "function",
         "z": "b6720ac1884745ba",
         "name": "read_ReData",
-        "func": "// バッファからの文字列変換\n//msg.payload = msg.payload.toString('utf8');\n//msg.payload = {payload:msg.payload.toString('ASCII')};\nvar string = msg.payload;\n//var fit = \"ReData\";\nvar fit = \"Container\";\n\n/** context名を管理するオブジェクト */\nconst contextName = {\n    startDate: \"startDate_\" + msg.port,\n    startTime: \"startTime_\" + msg.port,\n    preTime: \"preTime_\" + msg.port,\n}\n\n//msg.payload = null;\n// データの検証\nif (!msg.payload) {\n    return null;\n}\n\n/** 指定した時刻とタイムスタンプ値を紐づけてcontextに保存する関数 */\nconst setStartDate = (now, timestamp) =>{\n    flow.set(contextName.startDate, now.getTime())\n    flow.set(contextName.startTime, timestamp)\n    node.log(\"startDate set is complete. startDate: \" + now.getTime())\n} \n\n/** タイムスタンプから時刻を算出する関数 */\nconst getCurrentDate = (timeStamp) => {\n    const startDate = flow.get(contextName.startDate)\n    const startTime = flow.get(contextName.startTime)\n    let diffTime = timeStamp - startTime\n    let currentDate = new Date(startDate + diffTime)\n    return currentDate\n}\n\nif (~string.indexOf(fit)) {                      // \"ReData\"一致時の処理\n    //var result = string.split('ReData:');        //Redata:で分割\n    var result = string.split('Container:');        //Container:で分割\n    var answer = result[1];\n    if (answer == null) { return null; }\n\n    var result = answer.split('<<');        //<<で分割\n    if (result.length == null) { return null; }\n\n    //var answer = result[0].trim().split(' ');                //' 'で分割\n    var answer = result[0].split(' ');\n  \n    //let timestamp = parseInt(answer[7] + answer[8] + answer[9] + answer[10],16)\n    let timestamp = parseInt(answer[29] + answer[30] + answer[31] + answer[32], 16)\n    \n    /* ==== 取得時刻とタイムスタンプを同期させる処理 ==== */\n    \n    const now = new Date()\n\n    // contextデータの取得\n    let startDate = flow.get(contextName.startDate)\n    let startTime = flow.get(contextName.startTime)\n    let preTime = flow.get(contextName.preTime)\n\n    // context未設定時にリセット\n    if ((!startDate) || (!startTime)) {\n        setStartDate(now, timestamp);\n    }\n    // 前回のタイムスタンプより値が小さい場合にリセット\n    if (timestamp < preTime) {\n        setStartDate(now, timestamp);\n    }\n    \n    // タイムスタンプからHubの時刻を算出する\n    let hubDate = getCurrentDate(timestamp)\n    \n    // contextに今回のタイムスタンプを保存する\n    flow.set(contextName.preTime,timestamp)\n    \n    /* ============================================== */\n    let FrameCount = parseInt(answer[0] + answer[1] + answer[2], 16)\n    let RecipientID = parseInt(answer[3], 16)\n    let NodeId = parseInt(answer[4], 16) //SenderID\n    let BanID = parseInt(answer[5], 16)\n    let FCS = parseInt(answer[6], 16)\n    //answer[7]~[10]はタイムスタンプ\n    let samplingTiming = parseInt(answer[11], 16)\n    let seqNum = parseInt((answer[12]), 16)\n    let SensorType = parseInt(answer[13], 16)\n    let FrameParity = parseInt(answer[14] + answer[15], 16)\n    let len = 1\n    \n    //let dataArr = answer.slice(15)\n\n    //json構造体の設定\n    msg.Ndata = {\n        FrameCount: FrameCount,//0~2\n        RecipientID: RecipientID,//3\n        NodeId: NodeId,//4\n        BanID: BanID,//5\n        FCS: FCS,//6\n        TimeStamp: timestamp,//7~10\n        samplingTiming: samplingTiming,//11\n        SequenceNum: seqNum,//12\n        SensorType: SensorType,//13\n        FrameParity: FrameParity,//14,15\n        Len: len,\n    }\n\n    //追加・msg.payloadにデータフィールドを設定・データサイズを変更可\n    msg.payload = answer.slice(16, 108)\n    //msg.payload = dataArr\n    msg.hubDate = hubDate\n    msg.receiveDate = now\n\n    //msg.payload = [\n         //answer[9], answer[10], answer[11], answer[12], answer[13], answer[14], answer[15], \n    //     answer[16], answer[17],\n    //     answer[18], answer[19], answer[20], answer[21], answer[22], answer[23], answer[24], answer[25], answer[26], answer[27],\n    //     answer[28], answer[29], answer[30], answer[31], answer[32], answer[33], answer[34], answer[35], answer[36], answer[37],\n    //     answer[38], answer[39], answer[40], answer[41], answer[42], answer[43], answer[44], answer[45], answer[46], answer[47],\n    //     answer[48], answer[49], answer[50], answer[51], answer[52], answer[53], answer[54], answer[55], answer[56], answer[57],\n    //     answer[58], answer[59], answer[60], answer[61], answer[62], answer[63], answer[64], answer[65], answer[66], answer[67],\n    //     answer[68], answer[69], answer[70], answer[71], answer[72], answer[73], answer[74], answer[75], answer[76], answer[77],\n    //     answer[78], answer[79], answer[80], answer[81], answer[82], answer[83], answer[84], answer[85], answer[86], answer[87],\n    //     answer[88], answer[89], answer[90], answer[91], answer[92], answer[93], answer[94], answer[95], answer[96], answer[97],\n    //     answer[98], answer[99], answer[100], answer[101], answer[102], answer[103], answer[104], answer[105], answer[106], answer[107]\n    // ]\n    //console.log(msg.payload);\n\n    return msg;\n\n} else {\n    return null;\n}",
+        "func": "var string = msg.payload;\nvar fit = \"ReData\"; //var fit = \">>\";//\n//node.log(string);\nif (!msg.payload) {    return null;}// データの検証\n\nif (~string.indexOf(fit)) {                      // \"ReData\"一致時の処理\n    var result = string.split('ReData:');        //Container Type:55 55 で分割var result = string.split(' >>');\n    var answer = result[1];\n    if (answer == null) { return null; }\n    var result = answer.split('<<');        //<<で分割\n    if (result.length == null) { return null; }\n    //var answer = result[0].trim().split(' ');                //' 'で分割\n    var answer = result[0].split(' ');\n    const now = new Date()\n    \n    // let NodeId = parseInt(answer[0], 16) //SenderID\n    // let SensorType = parseInt(answer[1], 16)\n    // let len = 1\n    let FrameCount = parseInt(answer[0] + answer[1] + answer[2], 16)\n    let RecipientID = parseInt(answer[3], 16)\n    let NodeId = parseInt(answer[4], 16) //SenderID\n    let BanID = parseInt(answer[5], 16)\n    let FCS = parseInt(answer[6], 16)\n    //answer[7]~[10]はタイムスタンプ\n    let samplingTiming = parseInt(answer[11], 16)\n    let seqNum = parseInt((answer[12]), 16)\n    let SensorType = parseInt(answer[13], 16)//35?\n    //let FrameParity = parseInt(answer[14] + answer[15], 16)\n    let len = 1\n\n    msg.Ndata = {\n        // NodeId: NodeId,//1     //json構造体の設定\n        // SensorType: SensorType,//2\n        // Len: len\n        FrameCount: FrameCount,//0~2\n        RecipientID: RecipientID,//3\n        NodeId: NodeId,//4\n        BanID: BanID,//5\n        FCS: FCS,//6\n        //TimeStamp: timestamp,//7~10\n        samplingTiming: samplingTiming,//11\n        SequenceNum: seqNum,//12\n        SensorType: SensorType,//13\n        //FrameParity: FrameParity,//14,15\n        Len: len,\n    }\n    msg.payload = answer.slice(16, 128)    //追加・msg.payloadにデータフィールドを設定・データサイズを変更可answer.slice(2, 54) \n    msg.receiveDate = now\n    return msg;\n} else {    return null;}\n\n\n/*\nvar string = msg.payload;\nvar fit = \"ReData\";//var fit = \"Container\";\n\n// データの検証\nif (!msg.payload) {\n    return null;\n}\n\nif (~string.indexOf(fit)) {                      // \"ReData\"一致時の処理\n    var result = string.split('ReData:');        //Redata:で分割\n    //var result = string.split('Container:');        //Container:で分割\n    var answer = result[1];\n    if (answer == null) { return null; }\n    var result = answer.split('<<');        //<<で分割\n    if (result.length == null) { return null; }\n    //var answer = result[0].trim().split(' ');                //' 'で分割\n    var answer = result[0].split(' ');\n    const now = new Date()\n    \n    let FrameCount = parseInt(answer[0] + answer[1] + answer[2], 16)\n    let RecipientID = parseInt(answer[3], 16)\n    let NodeId = parseInt(answer[4], 16) //SenderID\n    let BanID = parseInt(answer[5], 16)\n    let FCS = parseInt(answer[6], 16)\n    //answer[7]~[10]はタイムスタンプ\n    let samplingTiming = parseInt(answer[11], 16)\n    let seqNum = parseInt((answer[12]), 16)\n    let SensorType = parseInt(answer[13], 16)//35?\n    let FrameParity = parseInt(answer[14] + answer[15], 16)\n    let len = 1\n    \n    //let dataArr = answer.slice(15)\n\n    //json構造体の設定\n    msg.Ndata = {\n        FrameCount: FrameCount,//0~2\n        RecipientID: RecipientID,//3\n        NodeId: NodeId,//4\n        BanID: BanID,//5\n        FCS: FCS,//6\n        //TimeStamp: timestamp,//7~10\n        samplingTiming: samplingTiming,//11\n        SequenceNum: seqNum,//12\n        SensorType: SensorType,//13\n        FrameParity: FrameParity,//14,15\n        Len: len,\n    }\n\n    //追加・msg.payloadにデータフィールドを設定・データサイズを変更可\n    msg.payload = answer.slice(16, 108)\n    //msg.payload = dataArr\n    //msg.hubDate = hubDate\n    msg.receiveDate = now\n\n    return msg;\n\n} else {\n    return null;\n}\n*/",
         "outputs": 1,
         "timeout": "",
         "noerr": 0,
@@ -2495,7 +2517,7 @@
         "to": "",
         "reg": false,
         "x": 750,
-        "y": 460,
+        "y": 420,
         "wires": [
             [
                 "8c5af822a97c77b3"
@@ -2514,7 +2536,7 @@
         "template": "{\n    \"gyro_x\": {{payload.gyro_x}},\n    \"gyro_y\": {{payload.gyro_y}},\n    \"gyro_z\": {{payload.gyro_z}},\n    \"acc_x\" : {{payload.acc_x}},\n    \"acc_y\" : {{payload.acc_y}},\n    \"acc_z\" : {{payload.acc_z}}\n}\n",
         "output": "json",
         "x": 590,
-        "y": 260,
+        "y": 280,
         "wires": [
             [
                 "4452f71436582777"
@@ -2589,7 +2611,7 @@
         "fieldType": "msg",
         "format": "handlebars",
         "syntax": "mustache",
-        "template": "{\n    \"Temperature\": {{payload.temperature}},\n    \"Humidity\": {{payload.humidity}},\n    \"Pressure\": {{payload.pressure}}\n}",
+        "template": "{\n    \"Temperature\": {{payload.temp}},\n    \"Humidity\": {{payload.hum}},\n    \"Pressure\": {{payload.pre}}\n}",
         "output": "json",
         "x": 590,
         "y": 220,
@@ -2604,7 +2626,7 @@
         "type": "function",
         "z": "b6720ac1884745ba",
         "name": "Temp_proc",
-        "func": "let input = msg.payload;\n//node.log(input)\nconst tlen = msg.Ndata.Len;//1\nconst hubDate = msg.hubDate\n// const samplingTime = 40\nconst BUFFER_SIZE = 11\n\n// ====== タイムスタンプ算出用 =======\nconst contextName = {\n    startDate: \"startDate_\" + msg.port,\n    startTime: \"startTime_\" + msg.port,\n    preTime: \"preTime_\" + msg.port,\n}\n\nconst getCurrentDate = (timeStamp) => {\n    const startDate = flow.get(contextName.startDate)\n    const startTime = flow.get(contextName.startTime)\n    let diffTime = timeStamp - startTime\n    let currentDate = new Date(startDate + diffTime)\n    return currentDate\n}\n\n// ===================================\n\nif (tlen == 0) {\n    return null;\n}\n\nlet buffer = []\n// lenのサイズに従ってBuffer配列を作成する\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    buffer[cnt] = new Array()\n    for (let i = 0; i < BUFFER_SIZE; i++) {\n        buffer[cnt].push(input[i + BUFFER_SIZE * cnt])\n    }\n}\n\nconst startDate = flow.get(contextName.startDate)\nconst startTime = flow.get(contextName.startTime)\n\nif ((!startDate) || (!startTime)) {\n    node.warn(\"cannot get context!\");\n    return null\n}\n\n// Buffer配列をTemp, press, hum, timestampに分ける\nlet measurementTime\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    let tempBuf = buffer[cnt][0] + buffer[cnt][1] + ((parseInt(buffer[cnt][2],16)&0xf0)>>4).toString(16)\n    let pressBuf = (parseInt(buffer[cnt][2],16)&0x0f).toString(16) + buffer[cnt][3] + buffer[cnt][4]\n    let humBuf = buffer[cnt][5] + buffer[cnt][6]\n    let timeBuf = buffer[cnt][7] + buffer[cnt][8] + buffer[cnt][9] + buffer[cnt][10]\n\n    let tempValue = parseInt(tempBuf,16) / 100\n    let pressValue = parseInt(pressBuf, 16) /100\n    let humValue = parseInt(humBuf, 16) / 1024\n    let timeValue = parseInt(timeBuf, 16)\n\n    measurementTime = getCurrentDate(timeValue)\n    //node.log(tempValue)\n    //node.log(\"温度\")\n    msg = {\n        Ndata: msg.Ndata,\n        payload: {\n            \"temperature\": tempValue,\n            \"humidity\": humValue,\n            \"pressure\": pressValue\n        },\n        timestamp: measurementTime\n    }\n    if (tempValue >0 && tempValue <100){\n        node.send(msg);\n    }\n    \n}\n\nreturn null;\n",
+        "func": "let input = msg.payload;\nconst tlen = msg.Ndata.Len;//1\nconst BUFFER_SIZE = 16\n \nif (tlen == 0) {\n    return null;\n}\n \nfor (let cnt = 0; cnt < tlen; cnt++) {\n    const base = cnt * BUFFER_SIZE;\n    // バイト配列を直接まとめて16進化（超高速）\n    const tempBuf = (\n        input[base+0].toString(16).padStart(2,'0') +\n        input[base+1].toString(16).padStart(2,'0') +\n        input[base+2].toString(16).padStart(2,'0') +\n        input[base+3].toString(16).padStart(2,'0')\n    );\n    const humBuf = (\n        input[base+4].toString(16).padStart(2,'0') +\n        input[base+5].toString(16).padStart(2,'0') +\n        input[base+6].toString(16).padStart(2,'0') +\n        input[base+7].toString(16).padStart(2,'0')\n    );\n    const preBuf = (\n        input[base+8].toString(16).padStart(2,'0') +\n        input[base+9].toString(16).padStart(2,'0') +\n        input[base+10].toString(16).padStart(2,'0') +\n        input[base+11].toString(16).padStart(2,'0')\n    );\n    const tempValue = parseInt(tempBuf, 16) / 10000;\n    const humValue  = parseInt(humBuf, 16) / 10000;\n    const preValue  = parseInt(preBuf, 16) / 10000;\n\n    node.send({\n        Ndata: msg.Ndata,\n        payload: {\n            temp: tempValue,\n            hum: humValue,\n            pre: preValue,\n        },\n        //timestamp: measurementTime\n        timestamp: Date.now()\n    });\n}\nreturn null;",
         "outputs": 1,
         "timeout": "",
         "noerr": 0,
@@ -2615,9 +2637,7 @@
         "y": 240,
         "wires": [
             [
-                "fe8a86278f184804",
-                "e10503c65d8fbdd3",
-                "d9f002278481a023"
+                "fe8a86278f184804"
             ]
         ]
     },
@@ -2763,14 +2783,14 @@
         "id": "105af2051055822f",
         "type": "template",
         "z": "b6720ac1884745ba",
-        "name": "HR, RRI",
+        "name": "HR",
         "field": "payload",
         "fieldType": "msg",
         "format": "handlebars",
         "syntax": "mustache",
-        "template": "{\n    \"HR\": {{payload.HR}} ,\n    \"RRI\": {{payload.RRI}} \n}",
+        "template": "{\n    \"HR\": {{payload.HR}},    \n    \"RRI\": {{payload.RRI}}\n}",
         "output": "json",
-        "x": 600,
+        "x": 590,
         "y": 440,
         "wires": [
             [
@@ -2782,22 +2802,15 @@
         "id": "07c05c694cf427b3",
         "type": "subflow:866808d7a9f51b30",
         "z": "b6720ac1884745ba",
+        "d": true,
         "name": "",
-        "x": 400,
-        "y": 440,
+        "x": 480,
+        "y": 920,
         "wires": [
-            [
-                "6f713b97925e0ea4"
-            ],
-            [
-                "105af2051055822f"
-            ],
-            [
-                "a7222af7905c42d7"
-            ],
-            [
-                "af0a37733e0c6c65"
-            ]
+            [],
+            [],
+            [],
+            []
         ]
     },
     {
@@ -3017,6 +3030,7 @@
         "name": "batch_peak_detection",
         "func": "let dataArr = msg.payload\n\n// node.log(\"data: \" + JSON.stringify(dataArr))\n\n// 前後比較するインデックスの配列を作成する(1から開始、後ろから2番目まで)\nlet baseId = Array.from({length: (dataArr.length-2)},(_, i)=> i+1)\nlet peakLoc = baseId.filter((index) =>{\n    return dataArr[index].ecg > dataArr[index - 1].ecg && dataArr[index].ecg > dataArr[index + 1].ecg\n})\nif(peakLoc){\n    peakLoc.map(index=>{\n        msg = {\n            payload: dataArr[index].ecg,\n            timestamp: dataArr[index].timestamp,\n            Ndata: dataArr[index].Ndata\n        }\n        node.send(msg)\n    })\n    node.done()\n}else{\n    return null\n}\n// let peakData = peakLoc.map(index=> dataArr[index])\n\n// for (let i=0, length = peakData.length; i<length;i++){\n//     msg = {\n//         payload: peakData[i].ecg,\n//         timestamp: peakData[i].timestamp,\n//         Ndata: peakData[i].Ndata\n//     }\n//     node.send(msg);\n// }\n\nreturn null;",
         "outputs": 1,
+        "timeout": "",
         "noerr": 0,
         "initialize": "",
         "finalize": "",
@@ -3036,6 +3050,7 @@
         "name": "calc_HeartRate",
         "func": "let currentDate = msg.timestamp\n\nlet preDate = context.get(\"preDate\")\n\nif(!preDate){\n    context.set(\"preDate\",currentDate)\n    return null\n}\n\nlet RRI = currentDate.getTime() - preDate.getTime()\n\nlet BPM = 1000*60 / RRI\nBPM = Math.trunc(BPM)\n// node.log(\"RRI= \" + RRI + \" ms\")\n// node.log(\"BPM= \" + BPM)\n\nmsg.payload = {\n    HR: BPM,\n    RRI: RRI,\n}\ncontext.set(\"preDate\", currentDate)\n\nreturn msg;",
         "outputs": 1,
+        "timeout": "",
         "noerr": 0,
         "initialize": "",
         "finalize": "",
@@ -3264,6 +3279,7 @@
         "key": "topic",
         "joiner": "\\n",
         "joinerType": "str",
+        "useparts": true,
         "accumulate": false,
         "timeout": "",
         "count": "",
@@ -3272,7 +3288,7 @@
         "reduceInit": "",
         "reduceInitType": "",
         "reduceFixup": "",
-        "x": 1270,
+        "x": 1430,
         "y": 260,
         "wires": [
             [
@@ -3286,7 +3302,7 @@
         "type": "function",
         "z": "b6720ac1884745ba",
         "name": "makeDataObject",
-        "func": "// ========== measurement用データ ==========\nlet measurement = msg.measurement\n\n// ========== tag用データ ==========\n//const frame_count = msg.Ndata.FrameCount         //0~2\n//const recipient_id = msg.Ndata.RecipientID       //3\nconst node_id = msg.Ndata.NodeId                 //4\n//const ban_id = msg.Ndata.BanID                   //5\n//const fcs = msg.Ndata.FCS                        //6\n//const time_stamp = msg.Ndata.TimeStamp           //7~10\n//const sampling_timing = msg.Ndata.samplingTiming //11 \n//const sequence_num = msg.Ndata.SequenceNum       //12\nconst sensor_type = msg.Ndata.SensorType         //13\n//const frame_parity = msg.Ndata.FrameParity       //14,15\nconst tag = msg.tag;\n\nlet tagData = {\n    //\"FrameCount\": String(frame_count),           //0~2\n    //\"RecipientID\": String(recipient_id),         //3\n    \"NodeId\": String(node_id),                   //4\n    //\"BanID\": String(ban_id),                     //5\n    //\"FCS\": String(fcs),                          //6\n    //\"TimeStamp\": String(time_stamp),             //7~10\n    //\"samplingTiming\": String(sampling_timing),   //11\n    //\"SequenceNum\": String(sequence_num),         //12\n    \"SensorType\": String(sensor_type),           //13\n    //\"FrameParity\": String(frame_parity),         //14,15\n}\n\nif (tag) {\n    Object.assign(tagData, tag)\n}\n\n// ========== field用データ ==========\nlet fields = msg.payload\n\n// ========== timestamp用データ ==========\nlet timestamp = msg.timestamp\n\n// ========== データオブジェクト作成 ==========\nlet data = {\n    measurement: measurement,\n    tags: tagData,\n    fields: fields,\n    timestamp: timestamp.getTime()\n}\n\nmsg.payload = data\n\nreturn msg;",
+        "func": "// ========== measurement用データ ==========\nlet measurement = msg.measurement\n\n// ========== tag用データ ==========\n//const frame_count = msg.Ndata.FrameCount         //0~2\n//const recipient_id = msg.Ndata.RecipientID       //3\nconst node_id = msg.Ndata.NodeId                 //4\n//const ban_id = msg.Ndata.BanID                   //5\n//const fcs = msg.Ndata.FCS                        //6\n//const time_stamp = msg.Ndata.TimeStamp           //7~10\n//const sampling_timing = msg.Ndata.samplingTiming //11 \n//const sequence_num = msg.Ndata.SequenceNum       //12\nconst sensor_type = msg.Ndata.SensorType         //13\n//const frame_parity = msg.Ndata.FrameParity       //14,15\nconst tag = msg.tag;\n\nlet tagData = {\n    //\"FrameCount\": String(frame_count),           //0~2\n    //\"RecipientID\": String(recipient_id),         //3\n    \"NodeId\": String(node_id),                   //4\n    //\"BanID\": String(ban_id),                     //5\n    //\"FCS\": String(fcs),                          //6\n    //\"TimeStamp\": String(time_stamp),             //7~10\n    //\"samplingTiming\": String(sampling_timing),   //11\n    //\"SequenceNum\": String(sequence_num),         //12\n    \"SensorType\": String(sensor_type),           //13\n    //\"FrameParity\": String(frame_parity),         //14,15\n}\n\nif (tag) {\n    Object.assign(tagData, tag)\n}\n\n// ========== field用データ ==========\nlet fields = msg.payload\n\n// ========== timestamp用データ ==========\nlet timestamp = msg.timestamp\n\n// ========== データオブジェクト作成 ==========\nlet data = {\n    measurement: measurement,\n    tags: tagData,\n    fields: fields,\n    timestamp: timestamp//new Date().getTime()\n}\n\nmsg.payload = data\n\nreturn msg;",
         "outputs": 1,
         "timeout": "",
         "noerr": 0,
@@ -3297,7 +3313,9 @@
         "y": 220,
         "wires": [
             [
-                "7dea470cdc7f4c23"
+                "af3c1648ffcc024c",
+                "7dea470cdc7f4c23",
+                "31d6a42be0bb51b9"
             ]
         ]
     },
@@ -3306,7 +3324,7 @@
         "type": "debug",
         "z": "b6720ac1884745ba",
         "name": "debug 30",
-        "active": false,
+        "active": true,
         "tosidebar": true,
         "console": false,
         "tostatus": false,
@@ -3314,8 +3332,8 @@
         "targetType": "full",
         "statusVal": "",
         "statusType": "auto",
-        "x": 1300,
-        "y": 340,
+        "x": 1420,
+        "y": 380,
         "wires": []
     },
     {
@@ -3328,9 +3346,10 @@
         "overlap": 0,
         "interval": "1",
         "allowEmptySequence": false,
+        "honourParts": false,
         "topics": [],
-        "x": 1140,
-        "y": 260,
+        "x": 1330,
+        "y": 180,
         "wires": [
             [
                 "7d49d3ccfb665b8d"
@@ -3407,6 +3426,7 @@
         "name": "calc_RRI_PSD",
         "func": "// ================ define functions ================\nconst expi = (theta) => {\n    return [Math.cos(theta), Math.sin(theta)]\n}\nconst iadd = ([ax, ay], [bx, by]) => {\n    return [ax + bx, ay + by]\n}\nconst isub = ([ax, ay], [bx, by]) => {\n    return [ax - bx, ay - by]\n}\nconst imul = ([ax, ay], [bx, by]) => {\n    return [ax * bx - ay * by, ax * by + ay * bx]\n}\nconst isum = (cs) => {\n    return cs.reduce((s, c) => iadd(s, c), [0, 0])\n}\nconst conj = ([x, y]) => {\n    return [x, -y];\n}\nconst revBit = (k,n0) =>{\n    if (k === 1) return n0;\n    const s1 = ((n0 & 0xaaaaaaaa) >>> 1) | ((n0 & 0x55555555) << 1);\n    if (k === 2) return s1;\n    const s2 = ((s1 & 0xcccccccc) >>> 2) | ((s1 & 0x33333333) << 2);\n    if (k <= 4) return s2 >>> (4 - k);\n    const s3 = ((s2 & 0xf0f0f0f0) >>> 4) | ((s2 & 0x0f0f0f0f) << 4);\n    if (k <= 8) return s3 >>> (8 - k);\n    const s4 = ((s3 & 0xff00ff00) >>> 8) | ((s3 & 0x00ff00ff) << 8);\n    if (k <= 16) return s4 >>> (16 - k);\n    const s5 = ((s4 & 0xffff0000) >>> 16) | ((s4 & 0x0000ffff) << 16);\n    return s5 >>> (32 - k);\n}\n\n/* calc fft by recursive function*/\nconst fftrec = (c, T, N) => {\n    const k = Math.log2(N);\n    const rec = c.map((_, i) => c[revBit(k, i)]);\n    for (let Nh = 1; Nh < N; Nh *= 2) {\n        T /= 2;\n        for (let s = 0; s < N; s += Nh * 2) {\n            for (let i = 0; i < Nh; i++) {\n                const l = rec[s + i], re = imul(rec[s + i + Nh], expi(T * i));\n                [rec[s + i], rec[s + i + Nh]] = [iadd(l, re), isub(l, re)];\n            }\n        }\n    }\n    return rec\n}\n\n/* use recursive fft method */\nconst fft = (f) => {\n    const N = f.length, T = -2 * Math.PI;\n    return fftrec(f, T, N);\n}\nconst ifft = (F) => {\n    const N = F.length, T = 2 * Math.PI;\n    return fftrec(F, T, N).map(([r, i]) => [r / N, i / N]);\n}\n\n/* FFT by Bluestein's algorithm */\nconst fftin = (c, T, N) => {\n    const Nd = N * 2;\n    const bc = c.map((_, n) => expi(T * n * n / Nd));\n    const b = bc.map(conj);\n    const a = c.map((cn, n) => imul(cn, bc[n]));\n\n    const N2 = 1 << (32 - Math.clz32(Nd - 1));\n    const a2 = a.concat(Array(N2 - N).fill([0, 0]));\n    const b2 = b.concat(Array(N2 - Nd + 1).fill([0, 0]), b.slice(1).reverse());\n    const A2 = fft(a2);\n    const B2 = fft(b2);\n    const AB2 = A2.map((A2n, n) => imul(A2n, B2[n]));\n    const ab2 = ifft(AB2);\n    return bc.map((bcn, n) => imul(bcn, ab2[n]));\n}\n\nconst fft1 = (f) => {\n    const N = f.length, T = -2 * Math.PI;\n    return fftin(f, T, N);\n}\nconst ifft1 = (F) => {\n    const N = F.length, T = 2 * Math.PI;\n    return fftin(F, T, N).map(([r, i]) => [r / N, i / N]);\n}\n\nconst calcPowerSpectrum = (f, resolution) => {\n    return f.map((r, index) => [(resolution * index).toPrecision(6), Math.sqrt(r[0] ** 2 + r[1] ** 2)])\n}\n\n// ================================================\n\n/**\n *  横軸分解能\n *  ΔHz = 1/(2^N * Δt) \n *  \n */\n\nlet input = msg.payload\nlet timestamp = msg.timestamp\n// let samplingTime = msg.samplingTime\n// let samplingTime = 500;\nlet samplingTime = 1000;\nconst f_resolution = 1 / (input.length * samplingTime/1000)\n// const f_resolution = 1 / (input.length * 0.2)\n\nlet RRIArr=[]\ninput.map((r)=> {\n    RRIArr.push([r[\"RRI\"], 0]);\n});\n\nconst F_RRI = fft1(RRIArr)\n\nconst PS = calcPowerSpectrum(F_RRI, f_resolution)\n\nlet RRI_PS_obj = {}\n\nPS.map((r)=> RRI_PS_obj[r[0]] = r[1])\n\nlet RRI_PSD = {}\n\nconst offset = 1e-10\n\nPS.map((r) => RRI_PSD[r[0]] = 10 * Math.log10(r[1] / f_resolution + offset))\n\nmsg = {\n    payload:{\n        PS: RRI_PS_obj,\n        PSD: RRI_PSD,\n        F: F_RRI\n    },\n    timestamp: timestamp,\n    Ndata: msg.Ndata\n}\n\nreturn msg;",
         "outputs": 1,
+        "timeout": "",
         "noerr": 0,
         "initialize": "",
         "finalize": "",
@@ -3480,12 +3500,10 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 600,
-        "y": 480,
+        "x": 620,
+        "y": 940,
         "wires": [
-            [
-                "08ae408d707110ed"
-            ]
+            []
         ]
     },
     {
@@ -3554,6 +3572,7 @@
         "id": "80c70cabb4e637d7",
         "type": "subflow:a893cba93cb6f041",
         "z": "b6720ac1884745ba",
+        "d": true,
         "name": "",
         "env": [
             {
@@ -3562,16 +3581,11 @@
                 "type": "str"
             }
         ],
-        "x": 400,
-        "y": 280,
+        "x": 480,
+        "y": 820,
         "wires": [
-            [
-                "119b04505ca29d99",
-                "9c33260d09276614"
-            ],
-            [
-                "4452f71436582777"
-            ]
+            [],
+            []
         ]
     },
     {
@@ -3713,8 +3727,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 970,
-        "y": 280,
+        "x": 1210,
+        "y": 220,
         "wires": [
             [
                 "e3f63e1fc7065778"
@@ -3731,6 +3745,7 @@
         "name": "calc_LFHF",
         "func": "// =================================\n// パワースペクトル密度の入力を受け取る\n// 入力データからキーである周波数のリストを取り出す\n// 周波数リストを文字列から数値に変換する\n// 周波数リストからLF(0.05Hz~0.15Hzまで)に該当するインデックスを取り出す\n// 周波数リストからHF(0.15Hz~0.40Hzまで)に該当するインデックスを取り出す\n// 各領域のインデックスを用いて積分値を算出する\n// LF / HFを計算し、ストレス指標とする\n// =================================\n\nconst VLFRANGE = [0, 0.05]      // 低周波数成分\nconst LFRANGE = [0.05, 0.15]    // 中間周波数成分\nconst HFRANGE = [0.15, 0.40]    // 高周波数成分\n\nlet input = msg.payload\n\n// PSDのオブジェクトからキーとバリューをリストにして取り出す\nlet hzKeys = Object.keys(input)\nlet hzValues = Object.values(input)\n\nlet hzList = []\nhzKeys.map(str => hzList.push(parseFloat(str)))\n\n// ========= 積分計算 =========\n\n// [WIP]単純な加算しか行っていないため、正確に積分値を計算する場合には修正が必要\n\nlet HF = 0\nlet LF = 0\nhzList.map((value, index)=>{\n    if((value >= LFRANGE[0]) &&(value <= LFRANGE[1])){\n        LF += hzValues[index]\n    }\n    if ((value > HFRANGE[0]) && (value <= HFRANGE[1])) {\n        HF += hzValues[index]\n    }\n})\n\nlet LFHF\n\nif(HF == 0){\n    const offset = 1e-10\n    LFHF = LF / (HF + offset)\n} else{\n    LFHF = LF / HF\n}\n\nmsg.payload= {\n    LF: LF,\n    HF: HF,\n    LFHF: LFHF\n}\n\nreturn msg;",
         "outputs": 1,
+        "timeout": "",
         "noerr": 0,
         "initialize": "",
         "finalize": "",
@@ -3843,12 +3858,10 @@
         "syntax": "mustache",
         "template": "{\n    \"LF\": {{payload.LF}},\n    \"HF\": {{payload.HF}},\n    \"LFHF\": {{payload.LFHF}}\n}",
         "output": "json",
-        "x": 590,
-        "y": 520,
+        "x": 610,
+        "y": 900,
         "wires": [
-            [
-                "08ae408d707110ed"
-            ]
+            []
         ]
     },
     {
@@ -3866,7 +3879,7 @@
         "type": "function",
         "z": "b6720ac1884745ba",
         "name": "GNSS_proc_v02",
-        "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nlet datetime = msg.receiveDate\nlet hubDate = msg.hubDate\n\nif (tlen == 0) {\n    return null;\n}\n\nlet latitude = parseInt(input[16] + input[17], 16)\nlet longitude = parseInt(input[20] + input[21], 16)\nlet hdop = parseInt(input[18] + input[19] + input[20],16)\nlet altitude = parseInt(input[22] + input[23] + input[24] + input[25] + input[26], 16)\nlet geoid = parseInt(input[27] + input[28] + input[29] + input[30] + input[31], 16)\nlet diffAge = parseInt(input[32] + input[33] + input[34] + input[35] +input[36], 16)\nlet stationId = parseInt(input[37] + input[38] + input[39] + input[40], 16)\nlet checksum = parseInt(input[41] + input[42], 16)\nlet NSflg = (parseInt(input[43],16) & 0b10000000) >> 7 // 0x80\nlet EWflg = (parseInt(input[43],16) & 0b01000000) >> 6 // 0x40\nlet gnssMode = (parseInt(input[43],16) & 0b00111000) >> 3 // 0x38\nlet numSVs = ((input[43] & 0b00000111) << 1) | ((input[44] & 0b10000000) >> 7)\nlet seasign = (input[44] & 0b01000000) >> 6\n\n// [TODO]dd.mmmmmmmに直す計算処理を追加すること\n//latitude = (!NSflg) ? latitude : -1* latitude\nlatitude = latitude/10000000000000000000\n//longitude = (!EWflg) ? longitude : -1* longitude\nlongitude = longitude / 10000000000000000000\naltitude = altitude/1000000000\n\nmsg = {\n    Ndata: msg.Ndata,\n    payload: {\n        lat: latitude,\n        lng: longitude,\n        alt: altitude,\n        geoid: geoid,\n        mode: gnssMode,\n        numSVs: numSVs,\n        HDOP: hdop,\n        // diffAge: diffAge,\n        // stationId: stationId\n    },\n    timestamp: hubDate\n}\n\n// // payload内にnullがあるかどうかチェックする関数\nconst hasNull = (obj) =>{\n    for(let key in obj){\n        if(obj[key] === null){\n            return true\n        }\n    }\n    return false\n}\n\n// // nullがない時だけ送信する\nif(!hasNull(msg.payload)){\n    return msg\n}else{\n    return null\n}\n",
+        "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nconst BUFFER_SIZE = 12\n\nif (tlen == 0) return null;\n// 32bit signed int（緯度経度の復元に必要）\nconst hexToInt32 = (hexStr) => {\n    let val = parseInt(hexStr, 16);\n    return (val & 0x80000000) ? (val - 0x100000000) : val;\n};\n\nconst output = [];\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    const base = cnt * BUFFER_SIZE;\n    // ---- 4バイト緯度 ----\n    const latBuf =\n        input[base + 0].toString(16).padStart(2, '0') +\n        input[base + 1].toString(16).padStart(2, '0') +\n        input[base + 2].toString(16).padStart(2, '0') +\n        input[base + 3].toString(16).padStart(2, '0');\n    // ---- 4バイト経度 ----\n    const lonBuf =\n        input[base + 4].toString(16).padStart(2, '0') +\n        input[base + 5].toString(16).padStart(2, '0') +\n        input[base + 6].toString(16).padStart(2, '0') +\n        input[base + 7].toString(16).padStart(2, '0');\n\n    const latVal = hexToInt32(latBuf);\n    const lonVal = hexToInt32(lonBuf);\n    //let latValue = parseInt(latBuf, 16)//i\n    //let lonValue = parseInt(lonBuf, 16)//i\n    const latitude = latVal / 10000.0;\n    const longitude = lonVal / 10000.0;\n \n    output.push({\n        Ndata: msg.Ndata,\n        payload: { lat: latitude, lng: longitude },\n        //timestamp: measurementTime//hubDate\n        timestamp: Date.now()\n    });\n}\nif (output.length === 1) {\n    return output[0];\n} else {\n    return [output];\n}",
         "outputs": 1,
         "timeout": "",
         "noerr": 0,
@@ -3885,22 +3898,20 @@
         "id": "74adaed7e5943e8f",
         "type": "subflow:997a3042cd0e7cd4",
         "z": "b6720ac1884745ba",
+        "d": true,
         "name": "",
-        "x": 400,
-        "y": 360,
+        "x": 480,
+        "y": 860,
         "wires": [
-            [
-                "9e139c834886661a"
-            ]
+            []
         ]
     },
     {
         "id": "3b4d8c579844d4e4",
         "type": "serial in",
         "z": "b6720ac1884745ba",
-        "d": true,
-        "name": "Hub:COM8",
-        "serial": "8ce6216da0f3cc43",
+        "name": "Hub:COM3",
+        "serial": "7e367b8d2423e3e4",
         "x": 80,
         "y": 120,
         "wires": [
@@ -3914,9 +3925,9 @@
         "type": "serial in",
         "z": "b6720ac1884745ba",
         "d": true,
-        "name": "Hub:COM4",
-        "serial": "7e367b8d2423e3e4",
-        "x": 80,
+        "name": "Node:COM11",
+        "serial": "2d3b9b3ad9e679b2",
+        "x": 90,
         "y": 80,
         "wires": [
             [
@@ -3928,8 +3939,9 @@
         "id": "c93b8a69bede3598",
         "type": "serial in",
         "z": "b6720ac1884745ba",
-        "name": "Hub:COM6",
-        "serial": "9e8a3098403f7ebc",
+        "d": true,
+        "name": "Hub:COM5",
+        "serial": "9179fe2d9d8fc687",
         "x": 80,
         "y": 40,
         "wires": [
@@ -3969,8 +3981,8 @@
         "font": "",
         "fontSize": "",
         "color": "#000000",
-        "x": 550,
-        "y": 820,
+        "x": 270,
+        "y": 900,
         "wires": []
     },
     {
@@ -4011,8 +4023,8 @@
         "font": "",
         "fontSize": "",
         "color": "#000000",
-        "x": 390,
-        "y": 800,
+        "x": 270,
+        "y": 860,
         "wires": []
     },
     {
@@ -4067,8 +4079,8 @@
         "seg2": "400",
         "diff": false,
         "className": "",
-        "x": 870,
-        "y": 120,
+        "x": 610,
+        "y": 820,
         "wires": []
     },
     {
@@ -4095,8 +4107,8 @@
         "seg2": "200",
         "diff": false,
         "className": "",
-        "x": 750,
-        "y": 120,
+        "x": 730,
+        "y": 780,
         "wires": []
     },
     {
@@ -4249,7 +4261,7 @@
         "fontSize": 16,
         "color": "#000000",
         "x": 610,
-        "y": 120,
+        "y": 780,
         "wires": []
     },
     {
@@ -4375,5 +4387,84 @@
                 "a0b592cb8de3bbb5"
             ]
         ]
+    },
+    {
+        "id": "e89d7c2a2a4b9b09",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "IMU ver.2",
+        "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nconst BUFFER_SIZE = 28\n\nif (tlen == 0) {return null;}\nconst hexToInt32 = (hexStr) => {\n    let val = parseInt(hexStr, 16);\n    return (val & 0x80000000) ? (val - 0x100000000) : val;\n};\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    const base = cnt * BUFFER_SIZE;\n    // バイト配列を直接まとめて16進化（超高速）\n    const acxBuf = (\n        input[base+0].toString(16).padStart(2,'0') +\n        input[base+1].toString(16).padStart(2,'0') +\n        input[base+2].toString(16).padStart(2,'0') +\n        input[base+3].toString(16).padStart(2,'0')\n    );\n    const acyBuf = (\n        input[base+4].toString(16).padStart(2,'0') +\n        input[base+5].toString(16).padStart(2,'0') +\n        input[base+6].toString(16).padStart(2,'0') +\n        input[base+7].toString(16).padStart(2,'0')\n    );\n    const aczBuf = (\n        input[base+8].toString(16).padStart(2,'0') +\n        input[base+9].toString(16).padStart(2,'0') +\n        input[base+10].toString(16).padStart(2,'0') +\n        input[base+11].toString(16).padStart(2,'0')\n    );\n    const gyxBuf = (\n        input[base+12].toString(16).padStart(2,'0') +\n        input[base+13].toString(16).padStart(2,'0') +\n        input[base+14].toString(16).padStart(2,'0') +\n        input[base+15].toString(16).padStart(2,'0')\n    );\n    const gyyBuf = (\n        input[base+16].toString(16).padStart(2,'0') +\n        input[base+17].toString(16).padStart(2,'0') +\n        input[base+18].toString(16).padStart(2,'0') +\n        input[base+19].toString(16).padStart(2,'0')\n    );\n    const gyzBuf = (\n        input[base+20].toString(16).padStart(2,'0') +\n        input[base+21].toString(16).padStart(2,'0') +\n        input[base+22].toString(16).padStart(2,'0') +\n        input[base+23].toString(16).padStart(2,'0')\n    );\n    const acxVal = hexToInt32(acxBuf);\n    const acyVal = hexToInt32(acyBuf);\n    const aczVal = hexToInt32(aczBuf);\n    const gyxVal = hexToInt32(gyxBuf);\n    const gyyVal = hexToInt32(gyyBuf);\n    const gyzVal = hexToInt32(gyzBuf);\n    const accX = acxVal / 10000.0;\n    const accY = acyVal / 10000.0;\n    const accZ = aczVal / 10000.0;\n    const gyroX = gyxVal / 10000.0;\n    const gyroY = gyyVal / 10000.0;\n    const gyroZ = gyzVal / 10000.0;\n\n    node.send({\n        Ndata: msg.Ndata,\n        payload: {\n            acc_x: accX,\n            acc_y: accY,\n            acc_z: accZ,\n            gyro_x: gyroX,\n            gyro_y: gyroY,\n            gyro_z: gyroZ\n        },\n        //timestamp: measurementTime\n        timestamp: Date.now()\n    });\n}\n/*\nconst toInt32 = (i) => (\n    (input[i] << 24) |\n    (input[i + 1] << 16) |\n    (input[i + 2] << 8) |\n    (input[i + 3])\n);\n\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    const base = cnt * BUFFER_SIZE;\n    const accX = toInt32(base + 0) / 10000;\n    const accY = toInt32(base + 4) / 10000;\n    const accZ = toInt32(base + 8) / 10000;\n    const gyroX = toInt32(base + 12) / 10000;\n    const gyroY = toInt32(base + 16) / 10000;\n    const gyroZ = toInt32(base + 20) / 10000;\n\n    node.send({\n        Ndata: msg.Ndata,\n        payload: {\n            acc_x: accX,\n            acc_y: accY,\n            acc_z: accZ,\n            gyro_x: gyroX,\n            gyro_y: gyroY,\n            gyro_z: gyroZ\n        },\n        //timestamp: measurementTime\n        timestamp: Date.now()\n    });\n}\n*/\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 400,
+        "y": 280,
+        "wires": [
+            [
+                "119b04505ca29d99"
+            ]
+        ]
+    },
+    {
+        "id": "7076fddc400d835a",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "PPG ver.2",
+        "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nconst BUFFER_SIZE = 2;//12\n\nconst SAMPLE_RATE = 63;           // Hz\nconst DT = 1000 / SAMPLE_RATE;     // ms/sample\n\nconst baseTime = Date.now();\n\nfor (let cnt = 0; cnt < 54; cnt++) {\n    const base = cnt * BUFFER_SIZE;\n    // バイト配列を直接まとめて16進化（超高速）\n    const ppgBuf = (\n        input[base+0].toString(16).padStart(2,'0') +\n        input[base+1].toString(16).padStart(2,'0')\n    );\n\n    const ppgValue = parseInt(ppgBuf, 16);\n    const ts = baseTime + cnt * DT;\n    const tsInt = Math.floor(ts);\n\n    node.send({\n        Ndata: msg.Ndata,\n        payload: {\n            ppg: ppgValue\n            },\n        timestamp: tsInt//Date.now()\n    });\n}\n\n    /*const ppgirBuf = (\n        input[base+4].toString(16).padStart(2,'0') +\n        input[base+5].toString(16).padStart(2,'0') +\n        input[base+6].toString(16).padStart(2,'0') +\n        input[base+7].toString(16).padStart(2,'0')\n    );*/\n        //const ppgValue2  = parseInt(ppgirBuf, 16);\n        //ppgir: ppgValue2  \"ppgir\" : {{payload.ppgir}}\n                //timestamp: measurementTime\n/*\nif (tlen == 0) {return null;}\nconst toInt32 = (i) => (\n    (input[i] << 24) |\n    (input[i + 1] << 16) |\n    (input[i + 2] << 8) |\n    (input[i + 3])\n);\n\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    const base = cnt * BUFFER_SIZE;\n    const ppgValue = toInt32(base + 0);\n    const ppgValue2 = toInt32(base + 4);\n\n    node.send({\n        Ndata: msg.Ndata,\n        payload: {\n            ppg: ppgValue,\n            ppgir: ppgValue2\n            },\n        //timestamp: measurementTime\n        timestamp: Date.now()\n    });\n}\n*/\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 410,
+        "y": 360,
+        "wires": [
+            [
+                "9e139c834886661a"
+            ]
+        ]
+    },
+    {
+        "id": "923ad57ae3b32dfc",
+        "type": "function",
+        "z": "b6720ac1884745ba",
+        "name": "ECG ver.2",
+        "func": "let input = msg.payload;\nlet tlen = msg.Ndata.Len;\nconst BUFFER_SIZE = 2;\nconst THRESHOLD = 6000;      // R波しきい値（要調整）\nconst REFRACTORY = 250;      // 不応期(ms) ＝ 0.25秒\n\nconst SAMPLE_RATE = 56;           // Hz\nconst DT = 1000 / SAMPLE_RATE;     // ms/sample\n\nconst baseTime = Date.now();\n\n\nlet prevValue = context.get(\"prevValue\") || 0;\nlet lastPeakTime = context.get(\"lastPeakTime\") || 0;\nlet lastRRI = context.get(\"lastRRI\") || null;\nlet lastHR = context.get(\"lastHR\") || null;\n\nfor (let cnt = 0; cnt < 54; cnt++) {\n    //const base = cnt * BUFFER_SIZE;\n    // バイト配列を直接まとめて16進化（超高速）\n    const ecgBuf = (\n        input[2 * cnt +0].toString(16).padStart(2,'0') +\n        input[2 * cnt +1].toString(16).padStart(2,'0')\n    );\n\n    const ecgValue = parseInt(ecgBuf, 16);\n    const now = Date.now();\n    const isPeak =\n        (ecgValue > THRESHOLD) &&\n        (ecgValue > prevValue) &&\n        (now - lastPeakTime > REFRACTORY);\n\n    if (isPeak) {\n        if (lastPeakTime !== 0) {\n            const rri = now - lastPeakTime;\n            const hr = 60000 / rri;\n            lastRRI = rri;\n            lastHR = hr;\n        }\n        lastPeakTime = now;\n    }\n    prevValue = ecgValue;\n\n    const ts = baseTime + cnt * DT;\n    const tsInt = Math.floor(ts);\n\n    node.send({\n        Ndata: msg.Ndata,\n        payload: {\n            ecg: ecgValue,\n            HR: lastHR,\n            RRI: lastRRI,\n            },\n        timestamp: tsInt//Date.now();\n    });\n}\n\ncontext.set(\"prevValue\", prevValue);\ncontext.set(\"lastPeakTime\", lastPeakTime);\ncontext.set(\"lastRRI\", lastRRI);\ncontext.set(\"lastHR\", lastHR);\n\nreturn null;\n\n\n/*\nlet input = msg.payload;\nlet tlen = msg.Ndata.Len;\nconst BUFFER_SIZE = 4;\nconst samplingTime = 80; // ms\n\nif (tlen === 0) return null;\n// 状態保持（context）\nlet ecgHistory = context.get(\"ecgHistory\") || [];\nlet rPeakTimes = context.get(\"rPeakTimes\") || [];\nlet lastPeak = context.get(\"lastPeak\") || 0;\n\nconst THRESHOLD = 500000; // Rピーク閾値（要調整）\nconst MIN_RR_INTERVAL = 300; // ms（ノイズ防止）\n\nfor (let cnt = 0; cnt < tlen; cnt++) {\n    const base = cnt * BUFFER_SIZE;\n    const ecgBuf =\n        input[base + 0].toString(16).padStart(2, '0') +\n        input[base + 1].toString(16).padStart(2, '0') +\n        input[base + 2].toString(16).padStart(2, '0') +\n        input[base + 3].toString(16).padStart(2, '0');\n\n    let ecgValue = parseInt(ecgBuf, 16);\n    const now = Date.now();\n\n    // ECG履歴保存\n    ecgHistory.push({ t: now, v: ecgValue });\n    if (ecgHistory.length > 500) ecgHistory.shift();\n\n    // Rピーク検出（簡易）\n    if (\n        ecgValue > THRESHOLD &&\n        (now - lastPeak) > MIN_RR_INTERVAL\n    ) {\n        rPeakTimes.push(now);\n        lastPeak = now;\n\n        if (rPeakTimes.length > 50) rPeakTimes.shift();\n    }\n\n    // HR / RRI計算\n    let HR = null;\n    let RRI = null;\n\n    if (rPeakTimes.length >= 2) {\n        let rr = rPeakTimes[rPeakTimes.length - 1] - rPeakTimes[rPeakTimes.length - 2];\n        RRI = rr;\n        HR = Math.round(60000 / rr);\n    }\n\n    // LF / HF（簡易版）\n    let LF = null, HF = null, LFHF = null;\n\n    if (rPeakTimes.length >= 10) {\n        let rrIntervals = [];\n        for (let i = 1; i < rPeakTimes.length; i++) {\n            rrIntervals.push(rPeakTimes[i] - rPeakTimes[i - 1]);\n        }\n\n        // 平均除去（簡易）\n        let mean = rrIntervals.reduce((a,b)=>a+b,0) / rrIntervals.length;\n        let detrended = rrIntervals.map(v => v - mean);\n\n        // 簡易パワー推定（実用ならFFT）\n        LF = detrended.slice(0, Math.floor(detrended.length/2))\n            .reduce((a,b)=>a+b*b,0);\n\n        HF = detrended.slice(Math.floor(detrended.length/2))\n            .reduce((a,b)=>a+b*b,0);\n\n        LFHF = HF !== 0 ? LF / HF : null;\n    }\n\n    node.send({\n        Ndata: msg.Ndata,\n        payload: {\n            ecg: ecgValue,\n            HR: HR,\n            RRI: RRI,\n            LF: LF,\n            HF: HF,\n            LFHF: LFHF\n        },\n        timestamp: now,\n        samplingTime: samplingTime\n    });\n}\n\n// context保存\ncontext.set(\"ecgHistory\", ecgHistory);\ncontext.set(\"rPeakTimes\", rPeakTimes);\ncontext.set(\"lastPeak\", lastPeak);\n\nreturn null;\n*/",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 410,
+        "y": 400,
+        "wires": [
+            [
+                "6f713b97925e0ea4",
+                "105af2051055822f"
+            ]
+        ]
+    },
+    {
+        "id": "31d6a42be0bb51b9",
+        "type": "debug",
+        "z": "b6720ac1884745ba",
+        "d": true,
+        "name": "debug 41",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1180,
+        "y": 100,
+        "wires": []
     }
 ]
